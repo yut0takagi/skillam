@@ -1,0 +1,11 @@
+{
+  "name": "skillam",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @skillam/server",
+    "test": "npm run test --workspaces --if-present"
+  }
+}
