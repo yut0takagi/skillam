@@ -25,12 +25,16 @@ export function runMigrations(db: Database.Database): void {
 
   const insertMigration = db.prepare('INSERT INTO _migrations (name) VALUES (?)')
 
+  const applyMigration = db.transaction((file: string, sql: string) => {
+    db.exec(sql)
+    insertMigration.run(file)
+  })
+
   for (const file of files) {
     if (applied.has(file)) {
       continue
     }
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf-8')
-    db.exec(sql)
-    insertMigration.run(file)
+    applyMigration(file, sql)
   }
 }

@@ -33,6 +33,9 @@ describe('runMigrations', () => {
     runMigrations(db)
     expect(() => runMigrations(db)).not.toThrow()
 
+    const { count } = db.prepare('SELECT COUNT(*) AS count FROM _migrations').get() as { count: number }
+    expect(count).toBe(1)
+
     db.close()
   })
 })
