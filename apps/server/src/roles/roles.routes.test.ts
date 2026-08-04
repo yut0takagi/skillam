@@ -189,4 +189,69 @@ describe('roles routes', () => {
 
     expect(response.statusCode).toBe(400)
   })
+
+  it('replaces mcp servers via PUT /roles/:id/mcp-servers and reflects them in GET /roles/:id', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const putResponse = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/mcp-servers`,
+      payload: {
+        servers: [{ name: 'filesystem', command: { command: 'npx', args: [] }, env: {} }]
+      }
+    })
+    expect(putResponse.statusCode).toBe(200)
+
+    const getResponse = await app.inject({ method: 'GET', url: `/roles/${id}` })
+    expect(getResponse.json().mcpServers).toEqual([
+      { id: expect.any(Number), name: 'filesystem', command: { command: 'npx', args: [] }, env: {} }
+    ])
+  })
+
+  it('returns 404 for PUT /roles/:id/mcp-servers when role is missing', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/roles/999/mcp-servers',
+      payload: { servers: [] }
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('rejects PUT /roles/:id/mcp-servers when the body is missing', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-b' } })
+    const { id } = created.json()
+
+    const response = await app.inject({ method: 'PUT', url: `/roles/${id}/mcp-servers` })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects PUT /roles/:id/mcp-servers when servers is not an array', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-c' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/mcp-servers`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('returns a clean 400 instead of a raw SQLite error for invalid skill_source values', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-d' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/skills`,
+      payload: { skills: [{ skillSource: 'bogus', skillPath: 'x' }] }
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).not.toHaveProperty('code')
+  })
 })

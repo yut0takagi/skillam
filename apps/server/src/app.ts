@@ -3,9 +3,18 @@ import type Database from 'better-sqlite3'
 import { RolesRepository } from './roles/roles.repository.js'
 import { rolesRoutes } from './roles/roles.routes.js'
 import { RoleSkillsRepository } from './roles/role-skills.repository.js'
+import { RoleMcpServersRepository } from './roles/role-mcp-servers.repository.js'
 
 export function buildApp(db: Database.Database): FastifyInstance {
   const app = Fastify({ logger: false })
+
+  app.setErrorHandler((error, _request, reply) => {
+    const code = (error as { code?: unknown }).code
+    if (typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT')) {
+      return reply.status(400).send({ error: 'invalid request: violates a database constraint' })
+    }
+    return reply.status(500).send({ error: 'internal server error' })
+  })
 
   app.get('/health', async () => {
     return { status: 'ok' }
@@ -13,7 +22,8 @@ export function buildApp(db: Database.Database): FastifyInstance {
 
   app.register(rolesRoutes, {
     roles: new RolesRepository(db),
-    skills: new RoleSkillsRepository(db)
+    skills: new RoleSkillsRepository(db),
+    mcpServers: new RoleMcpServersRepository(db)
   })
 
   return app

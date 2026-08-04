@@ -2,10 +2,13 @@ import type { FastifyPluginAsync } from 'fastify'
 import { RolesRepository } from './roles.repository.js'
 import { RoleSkillsRepository } from './role-skills.repository.js'
 import type { RoleSkillInput } from './role-skills.types.js'
+import { RoleMcpServersRepository } from './role-mcp-servers.repository.js'
+import type { RoleMcpServerInput } from './role-mcp-servers.types.js'
 
 export interface RolesRouteDeps {
   roles: RolesRepository
   skills: RoleSkillsRepository
+  mcpServers: RoleMcpServersRepository
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -51,7 +54,7 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
     if (!role) {
       return reply.status(404).send({ error: 'role not found' })
     }
-    return { ...role, skills: deps.skills.listForRole(id) }
+    return { ...role, skills: deps.skills.listForRole(id), mcpServers: deps.mcpServers.listForRole(id) }
   })
 
   app.put<{ Params: { id: string }; Body: { name?: string; description?: string } }>(
@@ -103,6 +106,23 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
         return reply.status(404).send({ error: 'role not found' })
       }
       return deps.skills.replaceForRole(id, request.body.skills)
+    }
+  )
+
+  app.put<{ Params: { id: string }; Body: { servers: RoleMcpServerInput[] } }>(
+    '/roles/:id/mcp-servers',
+    async (request, reply) => {
+      if (!hasBody(request.body)) {
+        return reply.status(400).send({ error: 'request body is required' })
+      }
+      if (!Array.isArray(request.body.servers)) {
+        return reply.status(400).send({ error: 'servers must be an array' })
+      }
+      const id = Number(request.params.id)
+      if (!deps.roles.getById(id)) {
+        return reply.status(404).send({ error: 'role not found' })
+      }
+      return deps.mcpServers.replaceForRole(id, request.body.servers)
     }
   )
 }
