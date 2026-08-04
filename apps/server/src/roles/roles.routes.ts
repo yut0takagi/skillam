@@ -118,10 +118,10 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       if (!Array.isArray(request.body.skills)) {
         return reply.status(400).send({ error: 'skills must be an array' })
       }
-      const invalidSkill = request.body.skills.find(
+      const hasInvalidSkill = request.body.skills.some(
         (skill) => typeof skill?.skillSource !== 'string' || typeof skill?.skillPath !== 'string'
       )
-      if (invalidSkill) {
+      if (hasInvalidSkill) {
         return reply.status(400).send({ error: 'each skill must have a string skillSource and skillPath' })
       }
       const id = Number(request.params.id)
@@ -141,8 +141,8 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       if (!Array.isArray(request.body.servers)) {
         return reply.status(400).send({ error: 'servers must be an array' })
       }
-      const invalidServer = request.body.servers.find((server) => typeof server?.name !== 'string')
-      if (invalidServer) {
+      const hasInvalidServer = request.body.servers.some((server) => typeof server?.name !== 'string')
+      if (hasInvalidServer) {
         return reply.status(400).send({ error: 'each mcp server must have a string name' })
       }
       const id = Number(request.params.id)
@@ -162,13 +162,13 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       if (!Array.isArray(request.body.agents)) {
         return reply.status(400).send({ error: 'agents must be an array' })
       }
-      const invalidAgent = request.body.agents.find(
+      const hasInvalidAgent = request.body.agents.some(
         (agent) =>
           typeof agent?.name !== 'string' ||
           typeof agent?.markdownBody !== 'string' ||
           typeof agent?.source !== 'string'
       )
-      if (invalidAgent) {
+      if (hasInvalidAgent) {
         return reply
           .status(400)
           .send({ error: 'each agent must have a string name, markdownBody, and source' })
