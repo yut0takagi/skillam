@@ -86,4 +86,41 @@ describe('projects routes', () => {
       expect(response.statusCode).toBe(404)
     })
   })
+
+  describe('scan', () => {
+    it('returns an empty array when no roots are registered', async () => {
+      const response = await app.inject({ method: 'GET', url: '/projects/scan' })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual([])
+    })
+
+    it('finds candidates under a registered root and excludes already-known paths', async () => {
+      const fs = await import('node:fs')
+      const os = await import('node:os')
+      const path = await import('node:path')
+
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-route-test-'))
+      const projectA = path.join(root, 'project-a')
+      const projectB = path.join(root, 'project-b')
+      fs.mkdirSync(path.join(projectA, '.git'), { recursive: true })
+      fs.mkdirSync(path.join(projectB, '.claude'), { recursive: true })
+
+      try {
+        await app.inject({ method: 'POST', url: '/auto-detect-roots', payload: { path: root } })
+        await app.inject({
+          method: 'POST',
+          url: '/projects',
+          payload: { path: projectA, name: 'project-a', autoDetected: true }
+        })
+
+        const response = await app.inject({ method: 'GET', url: '/projects/scan' })
+
+        expect(response.statusCode).toBe(200)
+        expect(response.json()).toEqual([{ path: projectB, name: 'project-b' }])
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+      }
+    })
+  })
 })

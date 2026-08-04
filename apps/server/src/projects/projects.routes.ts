@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { AutoDetectRootsRepository } from './auto-detect-roots.repository.js'
 import { ProjectsRepository } from './projects.repository.js'
+import { scanForCandidates } from './scanner.js'
 
 export interface ProjectsRouteDeps {
   autoDetectRoots: AutoDetectRootsRepository
@@ -35,5 +36,11 @@ export const projectsRoutes: FastifyPluginAsync<ProjectsRouteDeps> = async (app,
       return reply.status(404).send({ error: 'auto-detect root not found' })
     }
     return reply.status(204).send()
+  })
+
+  app.get('/projects/scan', async () => {
+    const roots = deps.autoDetectRoots.list().map((root) => root.path)
+    const knownPaths = deps.projects.listPaths()
+    return scanForCandidates(roots, knownPaths)
   })
 }
