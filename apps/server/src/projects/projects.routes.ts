@@ -40,7 +40,21 @@ export const projectsRoutes: FastifyPluginAsync<ProjectsRouteDeps> = async (app,
   })
 
   app.get('/projects/scan', async () => {
-    const roots = deps.autoDetectRoots.list().map((root) => root.path)
+    // Canonicalize each root the same way POST /projects canonicalizes
+    // registered project paths, so scan-time candidate paths line up with
+    // deps.projects.listPaths() for the knownPaths exclusion below. An
+    // auto-detect root is allowed to be registered before it exists on disk
+    // (POST /auto-detect-roots intentionally does not require existence), and
+    // fs.realpathSync.native throws in that case — fall back to the raw path
+    // so a not-yet-existing root still scans to zero candidates instead of
+    // throwing (the scanner's own try/catch around readdirSync handles that).
+    const roots = deps.autoDetectRoots.list().map((root) => {
+      try {
+        return fs.realpathSync.native(root.path)
+      } catch {
+        return root.path
+      }
+    })
     const knownPaths = deps.projects.listPaths()
     return scanForCandidates(roots, knownPaths)
   })

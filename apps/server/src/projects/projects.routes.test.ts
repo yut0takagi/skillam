@@ -102,12 +102,7 @@ describe('projects routes', () => {
       const os = await import('node:os')
       const path = await import('node:path')
 
-      // Resolve to the real on-disk path (fs.realpathSync.native) since POST /projects
-      // now canonicalizes stored paths — on macOS, os.tmpdir() is under a symlink
-      // (/var -> /private/var), so without this the fixture's `root` string would
-      // never match what the route stores, independent of the case-folding this
-      // fix targets.
-      const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-route-test-')))
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-route-test-'))
       const projectA = path.join(root, 'project-a')
       const projectB = path.join(root, 'project-b')
       fs.mkdirSync(path.join(projectA, '.git'), { recursive: true })
@@ -124,7 +119,14 @@ describe('projects routes', () => {
         const response = await app.inject({ method: 'GET', url: '/projects/scan' })
 
         expect(response.statusCode).toBe(200)
-        expect(response.json()).toEqual([{ path: projectB, name: 'project-b' }])
+        // The route registers/walks `root` in its raw form above, but the scan
+        // handler canonicalizes roots before walking (to line up with the
+        // canonicalized paths POST /projects stores), so returned candidate
+        // paths carry the canonical prefix (e.g. /private/var on macOS) even
+        // though `root` itself was never canonicalized.
+        expect(response.json()).toEqual([
+          { path: fs.realpathSync.native(projectB), name: 'project-b' }
+        ])
       } finally {
         fs.rmSync(root, { recursive: true, force: true })
       }
@@ -135,9 +137,7 @@ describe('projects routes', () => {
       const os = await import('node:os')
       const path = await import('node:path')
 
-      // See comment in the previous test: canonicalize so the fixture path already
-      // matches what POST /projects now stores (fs.realpathSync.native).
-      const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-exclude-test-')))
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-exclude-test-'))
       const projectDir = path.join(root, 'project-x')
       fs.mkdirSync(path.join(projectDir, '.git'), { recursive: true })
 
@@ -145,7 +145,13 @@ describe('projects routes', () => {
         await app.inject({ method: 'POST', url: '/auto-detect-roots', payload: { path: root } })
 
         const initialScan = await app.inject({ method: 'GET', url: '/projects/scan' })
-        expect(initialScan.json()).toEqual([{ path: projectDir, name: 'project-x' }])
+        // See comment in the previous test: the scan handler canonicalizes
+        // roots before walking, so the returned candidate path carries the
+        // canonical prefix even though `root`/`projectDir` were never
+        // canonicalized themselves.
+        expect(initialScan.json()).toEqual([
+          { path: fs.realpathSync.native(projectDir), name: 'project-x' }
+        ])
 
         const registered = await app.inject({
           method: 'POST',
@@ -168,6 +174,39 @@ describe('projects routes', () => {
         expect(scanAfterExclude.json()).toEqual([])
       } finally {
         fs.rmSync(root, { recursive: true, force: true })
+      }
+    })
+
+    it('does not resurface a registered project after scanning via a non-canonical auto-detect root', async () => {
+      const fs = await import('node:fs')
+      const os = await import('node:os')
+      const path = await import('node:path')
+
+      // os.tmpdir() returns a non-canonical path on macOS (/var/... is a
+      // symlink to /private/var/...) — register it RAW, without resolving,
+      // to match how a real user would register a root.
+      const rawRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-canon-test-'))
+      const projectDir = path.join(rawRoot, 'project-y')
+      fs.mkdirSync(path.join(projectDir, '.git'), { recursive: true })
+
+      try {
+        await app.inject({ method: 'POST', url: '/auto-detect-roots', payload: { path: rawRoot } })
+
+        const firstScan = await app.inject({ method: 'GET', url: '/projects/scan' })
+        expect(firstScan.json()).toHaveLength(1)
+        const candidate = firstScan.json()[0]
+
+        const registered = await app.inject({
+          method: 'POST',
+          url: '/projects',
+          payload: { path: candidate.path, name: candidate.name, autoDetected: true }
+        })
+        expect(registered.statusCode).toBe(201)
+
+        const secondScan = await app.inject({ method: 'GET', url: '/projects/scan' })
+        expect(secondScan.json()).toEqual([])
+      } finally {
+        fs.rmSync(rawRoot, { recursive: true, force: true })
       }
     })
   })
