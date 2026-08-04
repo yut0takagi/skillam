@@ -27,10 +27,11 @@ export const secretsRoutes: FastifyPluginAsync<SecretsRouteDeps> = async (app, d
     if (!hasBody(request.body)) {
       return reply.status(400).send({ error: 'request body is required' })
     }
-    const { refName, value } = request.body
-    if (typeof refName !== 'string' || refName.trim() === '') {
+    const { refName: rawRefName, value } = request.body
+    if (typeof rawRefName !== 'string' || rawRefName.trim() === '') {
       return reply.status(400).send({ error: 'refName is required' })
     }
+    const refName = rawRefName.trim()
     if (typeof value !== 'string' || value === '') {
       return reply.status(400).send({ error: 'value is required' })
     }

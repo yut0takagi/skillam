@@ -58,6 +58,42 @@ describe('secrets routes', () => {
     expect(response.statusCode).toBe(400)
   })
 
+  it('trims whitespace from refName before storing and returning it', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: '  github-token  ', value: 'ghp_realvalue' }
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json()).toMatchObject({ refName: 'github-token' })
+
+    const listResponse = await app.inject({ method: 'GET', url: '/secrets' })
+    expect(listResponse.json()).toMatchObject([{ refName: 'github-token' }])
+  })
+
+  it('rejects a duplicate refName that differs only by whitespace padding', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: '  padded-dup  ', value: 'a' }
+    })
+
+    const unpadded = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'padded-dup', value: 'b' }
+    })
+    expect(unpadded.statusCode).toBe(400)
+
+    const differentlyPadded = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'padded-dup   ', value: 'c' }
+    })
+    expect(differentlyPadded.statusCode).toBe(400)
+  })
+
   it('lists secrets via GET /secrets without leaking encrypted or plaintext values', async () => {
     await app.inject({ method: 'POST', url: '/secrets', payload: { refName: 'a', value: 'x' } })
     await app.inject({ method: 'POST', url: '/secrets', payload: { refName: 'b', value: 'y' } })
