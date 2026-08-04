@@ -74,7 +74,7 @@ role_mcp_servers (id, role_id, name, command_json, env_json)
   -- env_json内の値は環境変数参照 or secret_ref:xxx の形で保持
 
 -- シークレット（暗号化）
-secrets (id, ref_name, encrypted_value, created_at)
+secrets (id, ref_name, encrypted_value, created_at, updated_at)
   -- role_mcp_servers.env_json から secret_ref 経由で参照される
 
 -- ロールに紐づくサブエージェント定義
