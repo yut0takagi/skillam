@@ -67,7 +67,12 @@ export const projectsRoutes: FastifyPluginAsync<ProjectsRouteDeps> = async (app,
     if (!fs.existsSync(projectPath) || !fs.statSync(projectPath).isDirectory()) {
       return reply.status(400).send({ error: 'path does not exist or is not a directory' })
     }
-    const project = deps.projects.create({ path: projectPath, name, autoDetected, excluded })
+    // Canonicalize to the OS's real on-disk casing/symlink target so that
+    // case-insensitive-but-case-preserving filesystems (e.g. macOS/APFS)
+    // can't register the same directory twice under differently-cased
+    // path strings. Safe here because existence was just confirmed above.
+    const canonicalPath = fs.realpathSync.native(projectPath)
+    const project = deps.projects.create({ path: canonicalPath, name, autoDetected, excluded })
     return reply.status(201).send(project)
   })
 

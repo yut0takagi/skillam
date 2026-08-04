@@ -102,7 +102,12 @@ describe('projects routes', () => {
       const os = await import('node:os')
       const path = await import('node:path')
 
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-route-test-'))
+      // Resolve to the real on-disk path (fs.realpathSync.native) since POST /projects
+      // now canonicalizes stored paths — on macOS, os.tmpdir() is under a symlink
+      // (/var -> /private/var), so without this the fixture's `root` string would
+      // never match what the route stores, independent of the case-folding this
+      // fix targets.
+      const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-route-test-')))
       const projectA = path.join(root, 'project-a')
       const projectB = path.join(root, 'project-b')
       fs.mkdirSync(path.join(projectA, '.git'), { recursive: true })
@@ -130,7 +135,9 @@ describe('projects routes', () => {
       const os = await import('node:os')
       const path = await import('node:path')
 
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-exclude-test-'))
+      // See comment in the previous test: canonicalize so the fixture path already
+      // matches what POST /projects now stores (fs.realpathSync.native).
+      const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-exclude-test-')))
       const projectDir = path.join(root, 'project-x')
       fs.mkdirSync(path.join(projectDir, '.git'), { recursive: true })
 
@@ -170,7 +177,10 @@ describe('projects routes', () => {
       const fs = await import('node:fs')
       const os = await import('node:os')
       const path = await import('node:path')
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-project-crud-test-'))
+      // Canonicalize the fixture path (see comments on the scan tests above) so the
+      // assertion below matches what POST /projects now stores via
+      // fs.realpathSync.native, independent of macOS's /var -> /private/var symlink.
+      const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-project-crud-test-')))
 
       try {
         const response = await app.inject({
@@ -297,6 +307,40 @@ describe('projects routes', () => {
       const response = await app.inject({ method: 'DELETE', url: '/projects/999' })
 
       expect(response.statusCode).toBe(404)
+    })
+
+    it('rejects registering the same directory twice under different case (case-insensitive filesystem)', async () => {
+      const fs = await import('node:fs')
+      const os = await import('node:os')
+      const path = await import('node:path')
+      // Canonicalize the base temp dir itself (see comments on earlier fixtures) so
+      // the route's fs.realpathSync.native output can be compared by plain string
+      // equality below, isolating the assertion to the case-folding behavior this
+      // test targets rather than macOS's unrelated /var -> /private/var symlink.
+      const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-case-dup-test-')))
+      const realProjectDir = path.join(dir, 'myproject')
+      fs.mkdirSync(realProjectDir)
+      const differentlyCasedPath = path.join(dir, 'MYPROJECT')
+
+      try {
+        const first = await app.inject({
+          method: 'POST',
+          url: '/projects',
+          payload: { path: differentlyCasedPath, name: 'a' }
+        })
+        expect(first.statusCode).toBe(201)
+        // The stored path should be the real on-disk casing, not the differently-cased input
+        expect(first.json().path).toBe(realProjectDir)
+
+        const second = await app.inject({
+          method: 'POST',
+          url: '/projects',
+          payload: { path: realProjectDir, name: 'b' }
+        })
+        expect(second.statusCode).toBe(400)
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
     })
   })
 })
