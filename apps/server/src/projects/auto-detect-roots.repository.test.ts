@@ -54,4 +54,10 @@ describe('AutoDetectRootsRepository', () => {
 
     expect(created.path).toBe('/Users/example/Develop')
   })
+
+  it('rejects a path that normalizes to an already-registered path', () => {
+    repo.create({ path: '/Users/example/Develop/' })
+
+    expect(() => repo.create({ path: '/Users/example/Develop' })).toThrow()
+  })
 })
