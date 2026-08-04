@@ -976,7 +976,7 @@ import { scanForCandidates } from './scanner.js'
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test -w @skillam/server -- src/projects/projects.routes.test.ts`
-Expected: PASS (all tests including the 2 new scan tests)
+Expected: the `'returns an empty array when no roots are registered'` scan test PASSES. The `'finds candidates under a registered root and excludes already-known paths'` scan test is expected to FAIL at this point — it depends on `POST /projects`, which doesn't exist until Task 7. Confirm the failure is specifically a 404 on that `POST /projects` call (an extra unexpected candidate in the result), not some other bug in the scan route. This test will fully pass once Task 7 lands.
 
 - [ ] **Step 5: Commit**
 

@@ -95,6 +95,8 @@ describe('projects routes', () => {
       expect(response.json()).toEqual([])
     })
 
+    // Expected to fail until Task 7 adds POST /projects — this test registers
+    // project-a via POST /projects before asserting it's excluded from the scan.
     it('finds candidates under a registered root and excludes already-known paths', async () => {
       const fs = await import('node:fs')
       const os = await import('node:os')
