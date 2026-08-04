@@ -5,6 +5,15 @@ export interface RolesRouteDeps {
   roles: RolesRepository
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    ((error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+      (error as { code?: string }).code === 'SQLITE_CONSTRAINT')
+  )
+}
+
 export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps) => {
   app.post<{ Body: { name: string; description?: string } }>('/roles', async (request, reply) => {
     const { name, description } = request.body
@@ -15,12 +24,7 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       const role = deps.roles.create({ name, description })
       return reply.status(201).send(role)
     } catch (error) {
-      if (
-        error instanceof Error &&
-        'code' in error &&
-        ((error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE' ||
-          (error as { code?: string }).code === 'SQLITE_CONSTRAINT')
-      ) {
+      if (isUniqueConstraintError(error)) {
         return reply.status(409).send({ error: `a role named "${name}" already exists` })
       }
       throw error
@@ -44,11 +48,22 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
     '/roles/:id',
     async (request, reply) => {
       const id = Number(request.params.id)
-      const role = deps.roles.update(id, request.body)
-      if (!role) {
-        return reply.status(404).send({ error: 'role not found' })
+      const { name } = request.body
+      if (name !== undefined && typeof name !== 'string') {
+        return reply.status(400).send({ error: 'name must be a string' })
       }
-      return role
+      try {
+        const role = deps.roles.update(id, request.body)
+        if (!role) {
+          return reply.status(404).send({ error: 'role not found' })
+        }
+        return role
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          return reply.status(409).send({ error: `a role named "${name}" already exists` })
+        }
+        throw error
+      }
     }
   )
 

@@ -87,6 +87,21 @@ describe('roles routes', () => {
     expect(response.json()).toMatchObject({ id, description: 'updated' })
   })
 
+  it('rejects PUT /roles/:id with a duplicate name', async () => {
+    await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const createdB = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-b' } })
+    const { id } = createdB.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}`,
+      payload: { name: 'role-a' }
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json()).toMatchObject({ error: expect.stringContaining('role-a') })
+  })
+
   it('deletes a role via DELETE /roles/:id', async () => {
     const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
     const { id } = created.json()
