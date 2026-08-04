@@ -1266,8 +1266,12 @@ describe('catalog routes', () => {
   beforeEach(() => {
     db = openDb(':memory:')
     runMigrations(db)
-    app = buildApp(db, new InMemoryKeychainClient())
-    scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-catalog-routes-test-'))
+    scratchRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-catalog-routes-test-')))
+    app = buildApp(db, new InMemoryKeychainClient(), {
+      userSkillsRoot: path.join(scratchRoot, 'user-skills'),
+      userAgentsRoot: path.join(scratchRoot, 'user-agents'),
+      pluginsCacheRoot: path.join(scratchRoot, 'plugins-cache')
+    })
   })
 
   afterEach(() => {
@@ -1378,8 +1382,6 @@ Expected: FAIL — `Cannot find module './catalog.routes.js'`
 
 ```ts
 // apps/server/src/catalog/catalog.routes.ts
-import os from 'node:os'
-import path from 'node:path'
 import type { FastifyPluginAsync } from 'fastify'
 import type { ProjectsRepository } from '../projects/projects.repository.js'
 import { scanSkills } from './skills-scanner.js'
@@ -1388,18 +1390,17 @@ import { scanPermissions } from './permissions-scanner.js'
 
 export interface CatalogRouteDeps {
   projects: ProjectsRepository
+  userSkillsRoot: string
+  userAgentsRoot: string
+  pluginsCacheRoot: string
 }
-
-const USER_SKILLS_ROOT = path.join(os.homedir(), '.claude', 'skills')
-const USER_AGENTS_ROOT = path.join(os.homedir(), '.claude', 'agents')
-const PLUGINS_CACHE_ROOT = path.join(os.homedir(), '.claude', 'plugins', 'cache')
 
 export const catalogRoutes: FastifyPluginAsync<CatalogRouteDeps> = async (app, deps) => {
   app.get('/catalog/skills', async () => {
     const projectPaths = deps.projects.list().map((p) => p.path)
     return scanSkills({
-      userSkillsRoot: USER_SKILLS_ROOT,
-      pluginsCacheRoot: PLUGINS_CACHE_ROOT,
+      userSkillsRoot: deps.userSkillsRoot,
+      pluginsCacheRoot: deps.pluginsCacheRoot,
       projectPaths
     })
   })
@@ -1407,8 +1408,8 @@ export const catalogRoutes: FastifyPluginAsync<CatalogRouteDeps> = async (app, d
   app.get('/catalog/agents', async () => {
     const projectPaths = deps.projects.list().map((p) => p.path)
     return scanAgents({
-      userAgentsRoot: USER_AGENTS_ROOT,
-      pluginsCacheRoot: PLUGINS_CACHE_ROOT,
+      userAgentsRoot: deps.userAgentsRoot,
+      pluginsCacheRoot: deps.pluginsCacheRoot,
       projectPaths
     })
   })
@@ -1420,19 +1421,50 @@ export const catalogRoutes: FastifyPluginAsync<CatalogRouteDeps> = async (app, d
 }
 ```
 
+**Why the roots are injected rather than hardcoded:** if `catalog.routes.ts` computed `path.join(os.homedir(), '.claude', 'skills')` etc. internally (as an earlier draft of this plan did), every test hitting `/catalog/skills` or `/catalog/agents` would scan the REAL developer machine's `~/.claude/` tree — indeterminate results depending on what's actually installed there, and no way to assert an empty/known baseline. This is the same trap Phase 2b pre-empted for `MacKeychainClient` (injectable with a production-safe default) — same fix, applied here to filesystem roots instead of a Keychain client.
+
 - [ ] **Step 4: Wire into `app.ts`**
 
-Read the actual current `apps/server/src/app.ts` first. Add:
+Read the actual current `apps/server/src/app.ts` first. This step also extends `buildApp`'s signature with a third, optional parameter so tests can override the catalog scan roots while production code keeps today's zero-argument call sites working unchanged. Add these imports (`os`/`path` may already be absent from `app.ts` — add them if not already imported):
 
 ```ts
+import os from 'node:os'
+import path from 'node:path'
 import { catalogRoutes } from './catalog/catalog.routes.js'
+```
+
+Add a `CatalogRoots` type and change `buildApp`'s signature:
+
+```ts
+export interface CatalogRoots {
+  userSkillsRoot?: string
+  userAgentsRoot?: string
+  pluginsCacheRoot?: string
+}
+
+export function buildApp(
+  db: Database.Database,
+  keychainClient: KeychainClient = new MacKeychainClient(),
+  catalogRoots: CatalogRoots = {}
+): FastifyInstance {
+```
+
+Inside `buildApp`, before the `app.register(catalogRoutes, ...)` call, resolve each root to its real-machine default when not overridden:
+
+```ts
+  const userSkillsRoot = catalogRoots.userSkillsRoot ?? path.join(os.homedir(), '.claude', 'skills')
+  const userAgentsRoot = catalogRoots.userAgentsRoot ?? path.join(os.homedir(), '.claude', 'agents')
+  const pluginsCacheRoot = catalogRoots.pluginsCacheRoot ?? path.join(os.homedir(), '.claude', 'plugins', 'cache')
 ```
 
 And, after the existing `app.register(secretsRoutes, {...})` call and before `return app`:
 
 ```ts
   app.register(catalogRoutes, {
-    projects: new ProjectsRepository(db)
+    projects: new ProjectsRepository(db),
+    userSkillsRoot,
+    userAgentsRoot,
+    pluginsCacheRoot
   })
 ```
 
@@ -1460,7 +1492,18 @@ git commit -m "feat(server): add catalog skills/agents/permissions http routes"
 
 - [ ] **Step 1: Append the failing tests**
 
-Add this nested `describe` inside the existing test file:
+First, update the existing top-level `beforeEach` in `catalog.routes.test.ts` (added in Task 6) to also inject a scratch `claudeJsonPath`, for the same test-isolation reason the other three roots were injected — without this, `GET /catalog/mcp-servers` would scan this machine's real `~/.claude.json`, which has real `mcpServers` entries that would break every exact-length/exact-equality assertion below:
+
+```ts
+    app = buildApp(db, new InMemoryKeychainClient(), {
+      userSkillsRoot: path.join(scratchRoot, 'user-skills'),
+      userAgentsRoot: path.join(scratchRoot, 'user-agents'),
+      pluginsCacheRoot: path.join(scratchRoot, 'plugins-cache'),
+      claudeJsonPath: path.join(scratchRoot, '.claude.json')
+    })
+```
+
+Then add this nested `describe` inside the existing test file:
 
 ```ts
   describe('GET /catalog/mcp-servers', () => {
@@ -1590,12 +1633,13 @@ import { extractSecretsFromEnv } from './secret-extraction.js'
 import type { SecretsRepository } from '../secrets/secrets.repository.js'
 ```
 
-Update `CatalogRouteDeps` to add `secrets: SecretsRepository`:
+Update `CatalogRouteDeps` to add `secrets: SecretsRepository` and `claudeJsonPath: string` (injected the same way as the other roots — see the note in Task 6 about why these aren't computed inline with `os.homedir()`):
 
 ```ts
 export interface CatalogRouteDeps {
   projects: ProjectsRepository
   secrets: SecretsRepository
+  claudeJsonPath: string
 }
 ```
 
@@ -1604,8 +1648,7 @@ Add the route (inside the plugin body):
 ```ts
   app.get('/catalog/mcp-servers', async () => {
     const projectPaths = deps.projects.list().map((p) => p.path)
-    const claudeJsonPath = path.join(os.homedir(), '.claude.json')
-    const rawServers = scanMcpServers({ claudeJsonPath, projectPaths })
+    const rawServers = scanMcpServers({ claudeJsonPath: deps.claudeJsonPath, projectPaths })
 
     return rawServers.map((server) => {
       const command = server.command
@@ -1645,11 +1688,30 @@ Add the route (inside the plugin body):
 
 - [ ] **Step 4: Update `app.ts`'s registration to pass the new dependencies**
 
+Add `claudeJsonPath` to the `CatalogRoots` interface and its default resolution, alongside the three roots already added in Task 6:
+
+```ts
+export interface CatalogRoots {
+  userSkillsRoot?: string
+  userAgentsRoot?: string
+  pluginsCacheRoot?: string
+  claudeJsonPath?: string
+}
+```
+
+```ts
+  const claudeJsonPath = catalogRoots.claudeJsonPath ?? path.join(os.homedir(), '.claude.json')
+```
+
 ```ts
   app.register(catalogRoutes, {
     projects: new ProjectsRepository(db),
     secrets: new SecretsRepository(db),
-    masterKeyProvider: new MasterKeyProvider(keychainClient)
+    masterKeyProvider: new MasterKeyProvider(keychainClient),
+    userSkillsRoot,
+    userAgentsRoot,
+    pluginsCacheRoot,
+    claudeJsonPath
   })
 ```
 
