@@ -1,5 +1,5 @@
-import path from 'node:path'
 import type Database from 'better-sqlite3'
+import { normalizePath } from '../lib/paths.js'
 import type { CreateProjectInput, Project, UpdateProjectInput } from './projects.types.js'
 
 interface ProjectRow {
@@ -28,7 +28,7 @@ export class ProjectsRepository {
   constructor(private readonly db: Database.Database) {}
 
   create(input: CreateProjectInput): Project {
-    const normalizedPath = path.normalize(input.path).replace(/\/+$/, '') || '/'
+    const normalizedPath = normalizePath(input.path)
     const row = this.db
       .prepare(
         `INSERT INTO projects (path, name, auto_detected, excluded)

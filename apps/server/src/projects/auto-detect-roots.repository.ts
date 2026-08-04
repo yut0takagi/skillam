@@ -1,5 +1,5 @@
-import path from 'node:path'
 import type Database from 'better-sqlite3'
+import { normalizePath } from '../lib/paths.js'
 import type { AutoDetectRoot, CreateAutoDetectRootInput } from './auto-detect-roots.types.js'
 
 interface AutoDetectRootRow {
@@ -20,7 +20,7 @@ export class AutoDetectRootsRepository {
   constructor(private readonly db: Database.Database) {}
 
   create(input: CreateAutoDetectRootInput): AutoDetectRoot {
-    const normalizedPath = path.normalize(input.path).replace(/\/+$/, '') || '/'
+    const normalizedPath = normalizePath(input.path)
     const row = this.db
       .prepare('INSERT INTO auto_detect_roots (path) VALUES (?) RETURNING *')
       .get(normalizedPath) as AutoDetectRootRow
