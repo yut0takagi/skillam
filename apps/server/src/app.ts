@@ -15,6 +15,7 @@ import { MacKeychainClient } from './secrets/mac-keychain-client.js'
 import { MasterKeyProvider } from './secrets/master-key-provider.js'
 import { SecretsRepository } from './secrets/secrets.repository.js'
 import { secretsRoutes } from './secrets/secrets.routes.js'
+import { catalogRoutes } from './catalog/catalog.routes.js'
 
 export function buildApp(
   db: Database.Database,
@@ -60,6 +61,10 @@ export function buildApp(
   app.register(secretsRoutes, {
     secrets: new SecretsRepository(db),
     masterKeyProvider: new MasterKeyProvider(keychainClient)
+  })
+
+  app.register(catalogRoutes, {
+    projects: new ProjectsRepository(db)
   })
 
   return app
