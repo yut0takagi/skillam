@@ -9,7 +9,7 @@ function tableNames(db: ReturnType<typeof openDb>): string[] {
 }
 
 describe('runMigrations', () => {
-  it('creates the roles and role_* tables', () => {
+  it('creates the roles, role_*, and project tables', () => {
     const db = openDb(':memory:')
 
     runMigrations(db)
@@ -21,7 +21,9 @@ describe('runMigrations', () => {
         'role_skills',
         'role_mcp_servers',
         'role_agents',
-        'role_permissions'
+        'role_permissions',
+        'auto_detect_roots',
+        'projects'
       ])
     )
     db.close()
@@ -34,7 +36,7 @@ describe('runMigrations', () => {
     expect(() => runMigrations(db)).not.toThrow()
 
     const { count } = db.prepare('SELECT COUNT(*) AS count FROM _migrations').get() as { count: number }
-    expect(count).toBe(1)
+    expect(count).toBe(2)
 
     db.close()
   })
