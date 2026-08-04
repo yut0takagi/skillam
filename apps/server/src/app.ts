@@ -9,11 +9,25 @@ import { RolePermissionsRepository } from './roles/role-permissions.repository.j
 import { AutoDetectRootsRepository } from './projects/auto-detect-roots.repository.js'
 import { ProjectsRepository } from './projects/projects.repository.js'
 import { projectsRoutes } from './projects/projects.routes.js'
+import type { KeychainClient } from './secrets/keychain-client.js'
+import { KeychainAccessError } from './secrets/keychain-client.js'
+import { MacKeychainClient } from './secrets/mac-keychain-client.js'
+import { MasterKeyProvider } from './secrets/master-key-provider.js'
+import { SecretsRepository } from './secrets/secrets.repository.js'
+import { secretsRoutes } from './secrets/secrets.routes.js'
 
-export function buildApp(db: Database.Database): FastifyInstance {
+export function buildApp(
+  db: Database.Database,
+  keychainClient: KeychainClient = new MacKeychainClient()
+): FastifyInstance {
   const app = Fastify({ logger: false })
 
   app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof KeychainAccessError) {
+      return reply
+        .status(503)
+        .send({ error: 'キーチェーンにアクセスできません。ターミナルのアクセス許可を確認してください。' })
+    }
     const code = (error as { code?: unknown }).code
     if (typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT')) {
       return reply.status(400).send({ error: 'invalid request: violates a database constraint' })
@@ -41,6 +55,11 @@ export function buildApp(db: Database.Database): FastifyInstance {
   app.register(projectsRoutes, {
     autoDetectRoots: new AutoDetectRootsRepository(db),
     projects: new ProjectsRepository(db)
+  })
+
+  app.register(secretsRoutes, {
+    secrets: new SecretsRepository(db),
+    masterKeyProvider: new MasterKeyProvider(keychainClient)
   })
 
   return app
