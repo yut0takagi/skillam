@@ -1,8 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { RolesRepository } from './roles.repository.js'
+import { RoleSkillsRepository } from './role-skills.repository.js'
+import type { RoleSkillInput } from './role-skills.types.js'
 
 export interface RolesRouteDeps {
   roles: RolesRepository
+  skills: RoleSkillsRepository
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -14,8 +17,15 @@ function isUniqueConstraintError(error: unknown): boolean {
   )
 }
 
+function hasBody(body: unknown): body is Record<string, unknown> {
+  return typeof body === 'object' && body !== null
+}
+
 export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps) => {
   app.post<{ Body: { name: string; description?: string } }>('/roles', async (request, reply) => {
+    if (!hasBody(request.body)) {
+      return reply.status(400).send({ error: 'request body is required' })
+    }
     const { name, description } = request.body
     if (typeof name !== 'string' || name.trim() === '') {
       return reply.status(400).send({ error: 'name is required' })
@@ -41,12 +51,15 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
     if (!role) {
       return reply.status(404).send({ error: 'role not found' })
     }
-    return role
+    return { ...role, skills: deps.skills.listForRole(id) }
   })
 
   app.put<{ Params: { id: string }; Body: { name?: string; description?: string } }>(
     '/roles/:id',
     async (request, reply) => {
+      if (!hasBody(request.body)) {
+        return reply.status(400).send({ error: 'request body is required' })
+      }
       const id = Number(request.params.id)
       const { name } = request.body
       if (name !== undefined && typeof name !== 'string') {
@@ -75,4 +88,18 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
     }
     return reply.status(204).send()
   })
+
+  app.put<{ Params: { id: string }; Body: { skills: RoleSkillInput[] } }>(
+    '/roles/:id/skills',
+    async (request, reply) => {
+      if (!hasBody(request.body)) {
+        return reply.status(400).send({ error: 'request body is required' })
+      }
+      const id = Number(request.params.id)
+      if (!deps.roles.getById(id)) {
+        return reply.status(404).send({ error: 'role not found' })
+      }
+      return deps.skills.replaceForRole(id, request.body.skills)
+    }
+  )
 }

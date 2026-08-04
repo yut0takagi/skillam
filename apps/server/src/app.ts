@@ -2,6 +2,7 @@ import Fastify, { FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
 import { RolesRepository } from './roles/roles.repository.js'
 import { rolesRoutes } from './roles/roles.routes.js'
+import { RoleSkillsRepository } from './roles/role-skills.repository.js'
 
 export function buildApp(db: Database.Database): FastifyInstance {
   const app = Fastify({ logger: false })
@@ -11,7 +12,8 @@ export function buildApp(db: Database.Database): FastifyInstance {
   })
 
   app.register(rolesRoutes, {
-    roles: new RolesRepository(db)
+    roles: new RolesRepository(db),
+    skills: new RoleSkillsRepository(db)
   })
 
   return app

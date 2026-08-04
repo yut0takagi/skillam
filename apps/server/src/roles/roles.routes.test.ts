@@ -112,4 +112,55 @@ describe('roles routes', () => {
     const getResponse = await app.inject({ method: 'GET', url: `/roles/${id}` })
     expect(getResponse.statusCode).toBe(404)
   })
+
+  it('replaces skills via PUT /roles/:id/skills and reflects them in GET /roles/:id', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const putResponse = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/skills`,
+      payload: { skills: [{ skillSource: 'user', skillPath: '~/.claude/skills/brainstorming' }] }
+    })
+    expect(putResponse.statusCode).toBe(200)
+
+    const getResponse = await app.inject({ method: 'GET', url: `/roles/${id}` })
+    expect(getResponse.json().skills).toEqual([
+      { id: expect.any(Number), skillSource: 'user', skillPath: '~/.claude/skills/brainstorming' }
+    ])
+  })
+
+  it('returns 404 for PUT /roles/:id/skills when role is missing', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/roles/999/skills',
+      payload: { skills: [] }
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('rejects POST /roles with no request body', async () => {
+    const response = await app.inject({ method: 'POST', url: '/roles' })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects PUT /roles/:id with no request body', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const response = await app.inject({ method: 'PUT', url: `/roles/${id}` })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects PUT /roles/:id/skills with no request body', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const response = await app.inject({ method: 'PUT', url: `/roles/${id}/skills` })
+
+    expect(response.statusCode).toBe(400)
+  })
 })
