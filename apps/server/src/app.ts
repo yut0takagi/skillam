@@ -15,6 +15,11 @@ export function buildApp(db: Database.Database): FastifyInstance {
     if (typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT')) {
       return reply.status(400).send({ error: 'invalid request: violates a database constraint' })
     }
+    const statusCode = (error as { statusCode?: unknown }).statusCode
+    if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+      const message = (error as { message?: unknown }).message
+      return reply.status(statusCode).send({ error: typeof message === 'string' ? message : 'bad request' })
+    }
     return reply.status(500).send({ error: 'internal server error' })
   })
 

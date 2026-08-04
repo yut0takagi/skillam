@@ -38,6 +38,16 @@ describe('roles routes', () => {
     expect(response.statusCode).toBe(400)
   })
 
+  it('rejects POST /roles with a non-string description', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/roles',
+      payload: { name: 'role-x', description: true }
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
   it('rejects POST /roles with a duplicate name', async () => {
     await app.inject({ method: 'POST', url: '/roles', payload: { name: 'dup-role' } })
 
@@ -85,6 +95,19 @@ describe('roles routes', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({ id, description: 'updated' })
+  })
+
+  it('rejects PUT /roles/:id with a non-string description', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}`,
+      payload: { description: [1, 2, 3] }
+    })
+
+    expect(response.statusCode).toBe(400)
   })
 
   it('rejects PUT /roles/:id with a duplicate name', async () => {
@@ -190,6 +213,19 @@ describe('roles routes', () => {
     expect(response.statusCode).toBe(400)
   })
 
+  it('rejects PUT /roles/:id/skills when a skill has a non-string skillPath', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-skills-e' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/skills`,
+      payload: { skills: [{ skillSource: 'user', skillPath: true }] }
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
   it('replaces mcp servers via PUT /roles/:id/mcp-servers and reflects them in GET /roles/:id', async () => {
     const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
     const { id } = created.json()
@@ -239,6 +275,22 @@ describe('roles routes', () => {
     })
 
     expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects PUT /roles/:id/mcp-servers when a server has a non-string name (prevents silent SQLite coercion)', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-mcp-e' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/mcp-servers`,
+      payload: { servers: [{ name: 123, command: { command: 'npx', args: [] }, env: {} }] }
+    })
+
+    expect(response.statusCode).toBe(400)
+
+    const getResponse = await app.inject({ method: 'GET', url: `/roles/${id}` })
+    expect(getResponse.json().mcpServers).toEqual([])
   })
 
   it('returns a clean 400 instead of a raw SQLite error for invalid skill_source values', async () => {
@@ -299,6 +351,19 @@ describe('roles routes', () => {
       method: 'PUT',
       url: `/roles/${id}/agents`,
       payload: {}
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects PUT /roles/:id/agents when an agent has a non-string name', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-agents-e' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/agents`,
+      payload: { agents: [{ name: true, markdownBody: '# Reviewer', source: 'authored' }] }
     })
 
     expect(response.statusCode).toBe(400)

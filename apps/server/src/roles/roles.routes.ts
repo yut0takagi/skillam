@@ -38,6 +38,9 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
     if (typeof name !== 'string' || name.trim() === '') {
       return reply.status(400).send({ error: 'name is required' })
     }
+    if (description !== undefined && typeof description !== 'string') {
+      return reply.status(400).send({ error: 'description must be a string' })
+    }
     try {
       const role = deps.roles.create({ name, description })
       return reply.status(201).send(role)
@@ -75,9 +78,12 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
         return reply.status(400).send({ error: 'request body is required' })
       }
       const id = Number(request.params.id)
-      const { name } = request.body
+      const { name, description } = request.body
       if (name !== undefined && typeof name !== 'string') {
         return reply.status(400).send({ error: 'name must be a string' })
+      }
+      if (description !== undefined && typeof description !== 'string') {
+        return reply.status(400).send({ error: 'description must be a string' })
       }
       try {
         const role = deps.roles.update(id, request.body)
@@ -112,6 +118,12 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       if (!Array.isArray(request.body.skills)) {
         return reply.status(400).send({ error: 'skills must be an array' })
       }
+      const invalidSkill = request.body.skills.find(
+        (skill) => typeof skill?.skillSource !== 'string' || typeof skill?.skillPath !== 'string'
+      )
+      if (invalidSkill) {
+        return reply.status(400).send({ error: 'each skill must have a string skillSource and skillPath' })
+      }
       const id = Number(request.params.id)
       if (!deps.roles.getById(id)) {
         return reply.status(404).send({ error: 'role not found' })
@@ -129,6 +141,10 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       if (!Array.isArray(request.body.servers)) {
         return reply.status(400).send({ error: 'servers must be an array' })
       }
+      const invalidServer = request.body.servers.find((server) => typeof server?.name !== 'string')
+      if (invalidServer) {
+        return reply.status(400).send({ error: 'each mcp server must have a string name' })
+      }
       const id = Number(request.params.id)
       if (!deps.roles.getById(id)) {
         return reply.status(404).send({ error: 'role not found' })
@@ -145,6 +161,17 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       }
       if (!Array.isArray(request.body.agents)) {
         return reply.status(400).send({ error: 'agents must be an array' })
+      }
+      const invalidAgent = request.body.agents.find(
+        (agent) =>
+          typeof agent?.name !== 'string' ||
+          typeof agent?.markdownBody !== 'string' ||
+          typeof agent?.source !== 'string'
+      )
+      if (invalidAgent) {
+        return reply
+          .status(400)
+          .send({ error: 'each agent must have a string name, markdownBody, and source' })
       }
       const id = Number(request.params.id)
       if (!deps.roles.getById(id)) {
