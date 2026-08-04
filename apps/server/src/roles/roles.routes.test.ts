@@ -32,6 +32,21 @@ describe('roles routes', () => {
     expect(response.statusCode).toBe(400)
   })
 
+  it('rejects POST /roles with a non-string name', async () => {
+    const response = await app.inject({ method: 'POST', url: '/roles', payload: { name: 12345 } })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects POST /roles with a duplicate name', async () => {
+    await app.inject({ method: 'POST', url: '/roles', payload: { name: 'dup-role' } })
+
+    const response = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'dup-role' } })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json()).toMatchObject({ error: expect.stringContaining('dup-role') })
+  })
+
   it('lists roles via GET /roles', async () => {
     await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
     await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-b' } })

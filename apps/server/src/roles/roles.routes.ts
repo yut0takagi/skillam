@@ -8,11 +8,23 @@ export interface RolesRouteDeps {
 export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps) => {
   app.post<{ Body: { name: string; description?: string } }>('/roles', async (request, reply) => {
     const { name, description } = request.body
-    if (!name || name.trim() === '') {
+    if (typeof name !== 'string' || name.trim() === '') {
       return reply.status(400).send({ error: 'name is required' })
     }
-    const role = deps.roles.create({ name, description })
-    return reply.status(201).send(role)
+    try {
+      const role = deps.roles.create({ name, description })
+      return reply.status(201).send(role)
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        ((error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+          (error as { code?: string }).code === 'SQLITE_CONSTRAINT')
+      ) {
+        return reply.status(409).send({ error: `a role named "${name}" already exists` })
+      }
+      throw error
+    }
   })
 
   app.get('/roles', async () => {
