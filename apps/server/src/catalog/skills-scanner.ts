@@ -77,10 +77,21 @@ function findPluginSkillDirs(root: string): string[] {
       return
     }
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) {
+      if (entry.name.startsWith('.')) {
         continue
       }
       const entryPath = path.join(dir, entry.name)
+      let isDir = entry.isDirectory()
+      if (!isDir && entry.isSymbolicLink()) {
+        try {
+          isDir = fs.statSync(entryPath).isDirectory()
+        } catch {
+          continue
+        }
+      }
+      if (!isDir) {
+        continue
+      }
       if (entry.name === 'skills') {
         found.push(entryPath)
         continue

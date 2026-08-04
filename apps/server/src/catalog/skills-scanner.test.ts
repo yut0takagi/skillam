@@ -139,6 +139,29 @@ describe('scanSkills', () => {
     ])
   })
 
+  it('finds a plugin skill reached through a symlinked intermediate directory', () => {
+    const pluginsCacheRoot = path.join(root, 'plugins-cache')
+    const realPluginLocation = path.join(root, 'real-plugin-location')
+    writeSkill(
+      path.join(realPluginLocation, 'skills', 'symlinked-plugin-skill'),
+      'symlinked-plugin-skill',
+      'Reached via a symlinked plugin dir'
+    )
+    fs.mkdirSync(pluginsCacheRoot, { recursive: true })
+    fs.symlinkSync(realPluginLocation, path.join(pluginsCacheRoot, 'some-plugin'))
+
+    const result = scanSkills({ userSkillsRoot: undefined, pluginsCacheRoot, projectPaths: [] })
+
+    expect(result).toEqual([
+      {
+        source: 'plugin',
+        name: 'symlinked-plugin-skill',
+        description: 'Reached via a symlinked plugin dir',
+        path: path.join(pluginsCacheRoot, 'some-plugin', 'skills', 'symlinked-plugin-skill')
+      }
+    ])
+  })
+
   it('does not descend into dot-prefixed directories while searching for plugin skills', () => {
     const pluginsCacheRoot = path.join(root, 'plugins-cache')
     writeSkill(
