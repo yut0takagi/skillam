@@ -506,6 +506,19 @@ describe('scanAgents', () => {
     expect(result).toEqual([])
   })
 
+  it('finds a plugin agent reached through a symlinked intermediate directory', () => {
+    const pluginsCacheRoot = path.join(root, 'plugins-cache')
+    const realPluginLocation = path.join(root, 'real-plugin-location')
+    writeAgent(path.join(realPluginLocation, 'agents'), 'symlinked.md', 'symlinked-agent', 'Reached via a symlinked plugin dir')
+    fs.mkdirSync(pluginsCacheRoot, { recursive: true })
+    fs.symlinkSync(realPluginLocation, path.join(pluginsCacheRoot, 'some-plugin'))
+
+    const result = scanAgents({ userAgentsRoot: undefined, pluginsCacheRoot, projectPaths: [] })
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ source: 'plugin', name: 'symlinked-agent' })
+  })
+
   it('returns an empty array when the roots do not exist', () => {
     const result = scanAgents({
       userAgentsRoot: path.join(root, 'does-not-exist'),
@@ -605,10 +618,21 @@ function findPluginAgentDirs(root: string): string[] {
       return
     }
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) {
+      if (entry.name.startsWith('.')) {
         continue
       }
       const entryPath = path.join(dir, entry.name)
+      let isDir = entry.isDirectory()
+      if (!isDir && entry.isSymbolicLink()) {
+        try {
+          isDir = fs.statSync(entryPath).isDirectory()
+        } catch {
+          continue
+        }
+      }
+      if (!isDir) {
+        continue
+      }
       if (entry.name === 'agents') {
         found.push(entryPath)
         continue
