@@ -30,7 +30,7 @@ export function extractSecretsFromEnv(
       sanitizedEnv[key] = value
       continue
     }
-    const refName = `mcp:${serverName}:${key}`
+    const refName = `mcp:${encodeURIComponent(serverName)}:${encodeURIComponent(key)}`
     secretsToStore.push({ refName, value })
     sanitizedEnv[key] = `secret_ref:${refName}`
   }

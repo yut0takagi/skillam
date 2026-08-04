@@ -82,4 +82,11 @@ describe('extractSecretsFromEnv', () => {
     expect(result.sanitizedEnv).toEqual({})
     expect(result.secretsToStore).toEqual([])
   })
+
+  it('does not let a colon in serverName or key collide with a different pair', () => {
+    const a = extractSecretsFromEnv('evil:server', { TOKEN: 'realvalue1' })
+    const b = extractSecretsFromEnv('evil', { 'server:TOKEN': 'realvalue2' })
+
+    expect(a.secretsToStore[0].refName).not.toBe(b.secretsToStore[0].refName)
+  })
 })
