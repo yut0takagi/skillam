@@ -10,6 +10,7 @@ import { AutoDetectRootsRepository } from './projects/auto-detect-roots.reposito
 import { ProjectsRepository } from './projects/projects.repository.js'
 import { projectsRoutes } from './projects/projects.routes.js'
 import type { KeychainClient } from './secrets/keychain-client.js'
+import { KeychainAccessError } from './secrets/keychain-client.js'
 import { MacKeychainClient } from './secrets/mac-keychain-client.js'
 import { MasterKeyProvider } from './secrets/master-key-provider.js'
 import { SecretsRepository } from './secrets/secrets.repository.js'
@@ -22,6 +23,11 @@ export function buildApp(
   const app = Fastify({ logger: false })
 
   app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof KeychainAccessError) {
+      return reply
+        .status(503)
+        .send({ error: 'キーチェーンにアクセスできません。ターミナルのアクセス許可を確認してください。' })
+    }
     const code = (error as { code?: unknown }).code
     if (typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT')) {
       return reply.status(400).send({ error: 'invalid request: violates a database constraint' })

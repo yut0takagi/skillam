@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { openDb } from './db/client.js'
 import { runMigrations } from './db/migrate.js'
 import { buildApp } from './app.js'
+import { KeychainAccessError } from './secrets/keychain-client.js'
+import { InMemoryKeychainClient } from './secrets/in-memory-keychain-client.js'
 
 describe('GET /health', () => {
   it('returns status ok', async () => {
@@ -30,5 +32,19 @@ describe('error handler', () => {
     })
 
     expect(response.statusCode).toBe(400)
+  })
+
+  it('returns 503 with a clear message when a KeychainAccessError is thrown', async () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    const app = buildApp(db, new InMemoryKeychainClient())
+    app.get('/__test-keychain-error', async () => {
+      throw new KeychainAccessError('simulated failure')
+    })
+
+    const response = await app.inject({ method: 'GET', url: '/__test-keychain-error' })
+
+    expect(response.statusCode).toBe(503)
+    expect(response.json().error).toContain('キーチェーン')
   })
 })
