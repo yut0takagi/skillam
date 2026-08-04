@@ -1,0 +1,117 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import type { FastifyInstance } from 'fastify'
+import type Database from 'better-sqlite3'
+import { openDb } from '../db/client.js'
+import { runMigrations } from '../db/migrate.js'
+import { buildApp } from '../app.js'
+import { InMemoryKeychainClient } from './in-memory-keychain-client.js'
+
+describe('secrets routes', () => {
+  let db: Database.Database
+  let app: FastifyInstance
+
+  beforeEach(() => {
+    db = openDb(':memory:')
+    runMigrations(db)
+    app = buildApp(db, new InMemoryKeychainClient())
+  })
+
+  it('creates a secret via POST /secrets and does not echo the plaintext value back', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'github-token', value: 'ghp_realvalue' }
+    })
+
+    expect(response.statusCode).toBe(201)
+    const body = response.json()
+    expect(body).toMatchObject({ refName: 'github-token' })
+    expect(body).not.toHaveProperty('value')
+    expect(JSON.stringify(body)).not.toContain('ghp_realvalue')
+  })
+
+  it('rejects POST /secrets without a refName', async () => {
+    const response = await app.inject({ method: 'POST', url: '/secrets', payload: { value: 'x' } })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects POST /secrets without a value', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'x' }
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects a duplicate refName', async () => {
+    await app.inject({ method: 'POST', url: '/secrets', payload: { refName: 'dup', value: 'a' } })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'dup', value: 'b' }
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('lists secrets via GET /secrets without leaking encrypted or plaintext values', async () => {
+    await app.inject({ method: 'POST', url: '/secrets', payload: { refName: 'a', value: 'x' } })
+    await app.inject({ method: 'POST', url: '/secrets', payload: { refName: 'b', value: 'y' } })
+
+    const response = await app.inject({ method: 'GET', url: '/secrets' })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body).toHaveLength(2)
+    for (const secret of body) {
+      expect(secret).not.toHaveProperty('value')
+      expect(secret).not.toHaveProperty('encryptedValue')
+    }
+  })
+
+  it('gets a single secret via GET /secrets/:id without its value', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'a', value: 'x' }
+    })
+    const { id } = created.json()
+
+    const response = await app.inject({ method: 'GET', url: `/secrets/${id}` })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ id, refName: 'a' })
+    expect(response.json()).not.toHaveProperty('value')
+  })
+
+  it('returns 404 for GET /secrets/:id when missing', async () => {
+    const response = await app.inject({ method: 'GET', url: '/secrets/999' })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('deletes a secret via DELETE /secrets/:id', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'a', value: 'x' }
+    })
+    const { id } = created.json()
+
+    const response = await app.inject({ method: 'DELETE', url: `/secrets/${id}` })
+
+    expect(response.statusCode).toBe(204)
+    const getResponse = await app.inject({ method: 'GET', url: `/secrets/${id}` })
+    expect(getResponse.statusCode).toBe(404)
+  })
+
+  it('returns 404 for DELETE /secrets/:id when missing', async () => {
+    const response = await app.inject({ method: 'DELETE', url: '/secrets/999' })
+
+    expect(response.statusCode).toBe(404)
+  })
+})
