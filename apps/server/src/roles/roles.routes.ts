@@ -95,6 +95,9 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       if (!hasBody(request.body)) {
         return reply.status(400).send({ error: 'request body is required' })
       }
+      if (!Array.isArray(request.body.skills)) {
+        return reply.status(400).send({ error: 'skills must be an array' })
+      }
       const id = Number(request.params.id)
       if (!deps.roles.getById(id)) {
         return reply.status(404).send({ error: 'role not found' })

@@ -163,4 +163,30 @@ describe('roles routes', () => {
 
     expect(response.statusCode).toBe(400)
   })
+
+  it('rejects PUT /roles/:id/skills when the body is an array instead of an object', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/skills`,
+      payload: []
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects PUT /roles/:id/skills when the skills key is missing', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/skills`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
 })
