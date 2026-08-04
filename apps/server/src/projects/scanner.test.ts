@@ -84,4 +84,40 @@ describe('scanForCandidates', () => {
 
     expect(scanForCandidates([root], new Set())).toEqual([])
   })
+
+  it('does not follow symlinked directories', () => {
+    const realProject = makeDir('real-project')
+    fs.mkdirSync(path.join(realProject, '.git'))
+    fs.symlinkSync(realProject, path.join(root, 'symlink-to-real-project'))
+
+    const candidates = scanForCandidates([root], new Set())
+
+    expect(candidates).toEqual([{ path: realProject, name: 'real-project' }])
+  })
+
+  it('skips a directory it cannot read instead of throwing', () => {
+    const unreadable = makeDir('unreadable')
+    fs.chmodSync(unreadable, 0o000)
+    const readableProject = makeDir('readable-project')
+    fs.mkdirSync(path.join(readableProject, '.git'))
+
+    try {
+      expect(() => scanForCandidates([root], new Set())).not.toThrow()
+      expect(scanForCandidates([root], new Set())).toEqual([
+        { path: readableProject, name: 'readable-project' }
+      ])
+    } finally {
+      fs.chmodSync(unreadable, 0o755)
+    }
+  })
+
+  it('deduplicates a candidate reachable through two overlapping roots', () => {
+    const projectDir = makeDir('workspace', 'project-f')
+    fs.mkdirSync(path.join(projectDir, '.git'))
+    const workspaceDir = path.join(root, 'workspace')
+
+    const candidates = scanForCandidates([root, workspaceDir], new Set())
+
+    expect(candidates).toEqual([{ path: projectDir, name: 'project-f' }])
+  })
 })
