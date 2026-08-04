@@ -5,6 +5,7 @@ import { rolesRoutes } from './roles/roles.routes.js'
 import { RoleSkillsRepository } from './roles/role-skills.repository.js'
 import { RoleMcpServersRepository } from './roles/role-mcp-servers.repository.js'
 import { RoleAgentsRepository } from './roles/role-agents.repository.js'
+import { RolePermissionsRepository } from './roles/role-permissions.repository.js'
 
 export function buildApp(db: Database.Database): FastifyInstance {
   const app = Fastify({ logger: false })
@@ -25,7 +26,8 @@ export function buildApp(db: Database.Database): FastifyInstance {
     roles: new RolesRepository(db),
     skills: new RoleSkillsRepository(db),
     mcpServers: new RoleMcpServersRepository(db),
-    agents: new RoleAgentsRepository(db)
+    agents: new RoleAgentsRepository(db),
+    permissions: new RolePermissionsRepository(db)
   })
 
   return app

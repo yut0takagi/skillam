@@ -317,4 +317,49 @@ describe('roles routes', () => {
     expect(response.statusCode).toBe(400)
     expect(response.json()).not.toHaveProperty('code')
   })
+
+  it('sets permissions via PUT /roles/:id/permissions and reflects them in GET /roles/:id', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const putResponse = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/permissions`,
+      payload: { permissions: { allow: ['Bash(git *)'] } }
+    })
+    expect(putResponse.statusCode).toBe(200)
+
+    const getResponse = await app.inject({ method: 'GET', url: `/roles/${id}` })
+    expect(getResponse.json().permissions).toEqual({
+      roleId: id,
+      permissions: { allow: ['Bash(git *)'] }
+    })
+  })
+
+  it('returns null permissions in GET /roles/:id when never set', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const getResponse = await app.inject({ method: 'GET', url: `/roles/${id}` })
+    expect(getResponse.json().permissions).toBeNull()
+  })
+
+  it('returns 404 for PUT /roles/:id/permissions when role is missing', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/roles/999/permissions',
+      payload: { permissions: {} }
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('rejects PUT /roles/:id/permissions when the body is missing', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-perms-b' } })
+    const { id } = created.json()
+
+    const response = await app.inject({ method: 'PUT', url: `/roles/${id}/permissions` })
+
+    expect(response.statusCode).toBe(400)
+  })
 })

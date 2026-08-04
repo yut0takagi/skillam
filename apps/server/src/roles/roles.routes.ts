@@ -6,12 +6,14 @@ import { RoleMcpServersRepository } from './role-mcp-servers.repository.js'
 import type { RoleMcpServerInput } from './role-mcp-servers.types.js'
 import { RoleAgentsRepository } from './role-agents.repository.js'
 import type { RoleAgentInput } from './role-agents.types.js'
+import { RolePermissionsRepository } from './role-permissions.repository.js'
 
 export interface RolesRouteDeps {
   roles: RolesRepository
   skills: RoleSkillsRepository
   mcpServers: RoleMcpServersRepository
   agents: RoleAgentsRepository
+  permissions: RolePermissionsRepository
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -61,7 +63,8 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       ...role,
       skills: deps.skills.listForRole(id),
       mcpServers: deps.mcpServers.listForRole(id),
-      agents: deps.agents.listForRole(id)
+      agents: deps.agents.listForRole(id),
+      permissions: deps.permissions.getForRole(id) ?? null
     }
   })
 
@@ -148,6 +151,20 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
         return reply.status(404).send({ error: 'role not found' })
       }
       return deps.agents.replaceForRole(id, request.body.agents)
+    }
+  )
+
+  app.put<{ Params: { id: string }; Body: { permissions: unknown } }>(
+    '/roles/:id/permissions',
+    async (request, reply) => {
+      if (!hasBody(request.body)) {
+        return reply.status(400).send({ error: 'request body is required' })
+      }
+      const id = Number(request.params.id)
+      if (!deps.roles.getById(id)) {
+        return reply.status(404).send({ error: 'role not found' })
+      }
+      return deps.permissions.setForRole(id, { permissions: request.body.permissions })
     }
   )
 }
