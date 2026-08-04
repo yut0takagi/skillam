@@ -1,7 +1,7 @@
 import type { KeychainClient } from './keychain-client.js'
 
 function key(service: string, account: string): string {
-  return `${service} ${account}`
+  return JSON.stringify([service, account])
 }
 
 export class InMemoryKeychainClient implements KeychainClient {
