@@ -114,4 +114,67 @@ describe('secrets routes', () => {
 
     expect(response.statusCode).toBe(404)
   })
+
+  it('updates a secret value via PUT /secrets/:id and the new value round-trips through reveal', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'rotates', value: 'original-value' }
+    })
+    const { id } = created.json()
+
+    const updateResponse = await app.inject({
+      method: 'PUT',
+      url: `/secrets/${id}`,
+      payload: { value: 'rotated-value' }
+    })
+    expect(updateResponse.statusCode).toBe(200)
+    expect(updateResponse.json()).not.toHaveProperty('value')
+
+    const revealResponse = await app.inject({ method: 'POST', url: `/secrets/${id}/reveal` })
+    expect(revealResponse.json()).toEqual({ value: 'rotated-value' })
+  })
+
+  it('returns 404 for PUT /secrets/:id when missing', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/secrets/999',
+      payload: { value: 'x' }
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('rejects PUT /secrets/:id without a value', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'a', value: 'x' }
+    })
+    const { id } = created.json()
+
+    const response = await app.inject({ method: 'PUT', url: `/secrets/${id}`, payload: {} })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('reveals the decrypted value via POST /secrets/:id/reveal', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/secrets',
+      payload: { refName: 'reveal-me', value: 'the-real-secret' }
+    })
+    const { id } = created.json()
+
+    const response = await app.inject({ method: 'POST', url: `/secrets/${id}/reveal` })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ value: 'the-real-secret' })
+  })
+
+  it('returns 404 for POST /secrets/:id/reveal when missing', async () => {
+    const response = await app.inject({ method: 'POST', url: '/secrets/999/reveal' })
+
+    expect(response.statusCode).toBe(404)
+  })
 })

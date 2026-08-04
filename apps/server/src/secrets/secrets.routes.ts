@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { encrypt } from './secrets-cipher.js'
+import { decrypt, encrypt } from './secrets-cipher.js'
 import type { MasterKeyProvider } from './master-key-provider.js'
 import { SecretsRepository } from './secrets.repository.js'
 import type { Secret } from './secrets.types.js'
@@ -60,5 +60,37 @@ export const secretsRoutes: FastifyPluginAsync<SecretsRouteDeps> = async (app, d
       return reply.status(404).send({ error: 'secret not found' })
     }
     return reply.status(204).send()
+  })
+
+  app.put<{ Params: { id: string }; Body: { value: string } }>(
+    '/secrets/:id',
+    async (request, reply) => {
+      if (!hasBody(request.body)) {
+        return reply.status(400).send({ error: 'request body is required' })
+      }
+      const { value } = request.body
+      if (typeof value !== 'string' || value === '') {
+        return reply.status(400).send({ error: 'value is required' })
+      }
+      const id = Number(request.params.id)
+      const key = deps.masterKeyProvider.getOrCreateKey()
+      const encryptedValue = encrypt(value, key)
+      const secret = deps.secrets.update(id, { encryptedValue })
+      if (!secret) {
+        return reply.status(404).send({ error: 'secret not found' })
+      }
+      return toPublicSecret(secret)
+    }
+  )
+
+  app.post<{ Params: { id: string } }>('/secrets/:id/reveal', async (request, reply) => {
+    const id = Number(request.params.id)
+    const secret = deps.secrets.getById(id)
+    if (!secret) {
+      return reply.status(404).send({ error: 'secret not found' })
+    }
+    const key = deps.masterKeyProvider.getOrCreateKey()
+    const value = decrypt(secret.encryptedValue, key)
+    return { value }
   })
 }
