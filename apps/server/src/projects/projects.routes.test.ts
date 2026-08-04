@@ -125,4 +125,139 @@ describe('projects routes', () => {
       }
     })
   })
+
+  describe('projects CRUD', () => {
+    it('registers a project via POST /projects when the path exists on disk', async () => {
+      const fs = await import('node:fs')
+      const os = await import('node:os')
+      const path = await import('node:path')
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-project-crud-test-'))
+
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/projects',
+          payload: { path: dir, name: 'my-project' }
+        })
+
+        expect(response.statusCode).toBe(201)
+        expect(response.json()).toMatchObject({
+          path: dir,
+          name: 'my-project',
+          autoDetected: false,
+          excluded: false
+        })
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    })
+
+    it('rejects POST /projects when the path does not exist', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/projects',
+        payload: { path: '/definitely/does/not/exist/anywhere', name: 'ghost' }
+      })
+
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects POST /projects without a name', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/projects',
+        payload: { path: '/tmp' }
+      })
+
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('rejects POST /projects when autoDetected is not a boolean', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/projects',
+        payload: { path: '/tmp', name: 'x', autoDetected: 'yes' }
+      })
+
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('lists projects via GET /projects', async () => {
+      await app.inject({ method: 'POST', url: '/projects', payload: { path: '/tmp', name: 'tmp' } })
+
+      const response = await app.inject({ method: 'GET', url: '/projects' })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toHaveLength(1)
+    })
+
+    it('gets a single project via GET /projects/:id', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/projects',
+        payload: { path: '/tmp', name: 'tmp' }
+      })
+      const { id } = created.json()
+
+      const response = await app.inject({ method: 'GET', url: `/projects/${id}` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({ id, name: 'tmp' })
+    })
+
+    it('returns 404 for GET /projects/:id when missing', async () => {
+      const response = await app.inject({ method: 'GET', url: '/projects/999' })
+
+      expect(response.statusCode).toBe(404)
+    })
+
+    it('updates a project via PUT /projects/:id', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/projects',
+        payload: { path: '/tmp', name: 'tmp' }
+      })
+      const { id } = created.json()
+
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/projects/${id}`,
+        payload: { name: 'renamed', excluded: true }
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({ id, name: 'renamed', excluded: true })
+    })
+
+    it('returns 404 for PUT /projects/:id when missing', async () => {
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/projects/999',
+        payload: { name: 'x' }
+      })
+
+      expect(response.statusCode).toBe(404)
+    })
+
+    it('deletes a project via DELETE /projects/:id', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/projects',
+        payload: { path: '/tmp', name: 'tmp' }
+      })
+      const { id } = created.json()
+
+      const response = await app.inject({ method: 'DELETE', url: `/projects/${id}` })
+
+      expect(response.statusCode).toBe(204)
+      const getResponse = await app.inject({ method: 'GET', url: `/projects/${id}` })
+      expect(getResponse.statusCode).toBe(404)
+    })
+
+    it('returns 404 for DELETE /projects/:id when missing', async () => {
+      const response = await app.inject({ method: 'DELETE', url: '/projects/999' })
+
+      expect(response.statusCode).toBe(404)
+    })
+  })
 })
