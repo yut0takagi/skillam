@@ -18,14 +18,12 @@ describe('catalog routes', () => {
   beforeEach(() => {
     db = openDb(':memory:')
     runMigrations(db)
-    app = buildApp(db, new InMemoryKeychainClient())
-    // Canonicalize immediately so later path comparisons against what
-    // POST /projects stores (which canonicalizes via fs.realpathSync.native)
-    // aren't broken by macOS's /var -> /private/var symlink, matching the
-    // convention used in projects.routes.test.ts.
-    scratchRoot = fs.realpathSync.native(
-      fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-catalog-routes-test-'))
-    )
+    scratchRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-catalog-routes-test-')))
+    app = buildApp(db, new InMemoryKeychainClient(), {
+      userSkillsRoot: path.join(scratchRoot, 'user-skills'),
+      userAgentsRoot: path.join(scratchRoot, 'user-agents'),
+      pluginsCacheRoot: path.join(scratchRoot, 'plugins-cache')
+    })
   })
 
   afterEach(() => {
@@ -33,21 +31,11 @@ describe('catalog routes', () => {
   })
 
   describe('GET /catalog/skills', () => {
-    // NOTE: /catalog/skills also scans the real ~/.claude/skills and
-    // ~/.claude/plugins/cache on the machine running the tests (that's the
-    // whole point of the route), so on a developer machine with real Claude
-    // Code skills/plugins installed the response is never actually []. These
-    // assertions filter to source: 'project-local' (or assert its absence)
-    // so the test verifies this route's own logic — wiring registered
-    // project paths into scanSkills — independent of whatever else happens
-    // to be installed on the host machine.
-    it('returns no project-local entries when nothing is registered', async () => {
+    it('returns an empty array when nothing is registered and env vars are unset', async () => {
       const response = await app.inject({ method: 'GET', url: '/catalog/skills' })
 
       expect(response.statusCode).toBe(200)
-      const body = response.json()
-      expect(Array.isArray(body)).toBe(true)
-      expect(body.some((entry: { source: string }) => entry.source === 'project-local')).toBe(false)
+      expect(response.json()).toEqual([])
     })
 
     it('finds skills under a registered project once a project is registered', async () => {
@@ -68,11 +56,7 @@ describe('catalog routes', () => {
       const response = await app.inject({ method: 'GET', url: '/catalog/skills' })
 
       expect(response.statusCode).toBe(200)
-      const body = response.json()
-      const projectLocalEntries = body.filter(
-        (entry: { source: string }) => entry.source === 'project-local'
-      )
-      expect(projectLocalEntries).toEqual([
+      expect(response.json()).toEqual([
         {
           source: 'project-local',
           name: 'demo',
@@ -103,17 +87,8 @@ describe('catalog routes', () => {
 
       expect(response.statusCode).toBe(200)
       const body = response.json()
-      // Filtered for the same reason as the /catalog/skills tests above:
-      // the route also scans the real ~/.claude/agents and plugins cache.
-      const projectLocalEntries = body.filter(
-        (entry: { source: string }) => entry.source === 'project-local'
-      )
-      expect(projectLocalEntries).toHaveLength(1)
-      expect(projectLocalEntries[0]).toMatchObject({
-        source: 'project-local',
-        name: 'reviewer',
-        description: 'Reviews things'
-      })
+      expect(body).toHaveLength(1)
+      expect(body[0]).toMatchObject({ source: 'project-local', name: 'reviewer', description: 'Reviews things' })
     })
   })
 
