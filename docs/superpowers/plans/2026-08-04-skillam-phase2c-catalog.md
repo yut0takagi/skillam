@@ -777,6 +777,13 @@ describe('extractSecretsFromEnv', () => {
     expect(result.sanitizedEnv).toEqual({})
     expect(result.secretsToStore).toEqual([])
   })
+
+  it('does not let a colon in serverName or key collide with a different pair', () => {
+    const a = extractSecretsFromEnv('evil:server', { TOKEN: 'realvalue1' })
+    const b = extractSecretsFromEnv('evil', { 'server:TOKEN': 'realvalue2' })
+
+    expect(a.secretsToStore[0].refName).not.toBe(b.secretsToStore[0].refName)
+  })
 })
 ```
 
@@ -821,7 +828,7 @@ export function extractSecretsFromEnv(
       sanitizedEnv[key] = value
       continue
     }
-    const refName = `mcp:${serverName}:${key}`
+    const refName = `mcp:${encodeURIComponent(serverName)}:${encodeURIComponent(key)}`
     secretsToStore.push({ refName, value })
     sanitizedEnv[key] = `secret_ref:${refName}`
   }
@@ -833,7 +840,7 @@ export function extractSecretsFromEnv(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm run test -w @skillam/server -- src/catalog/secret-extraction.test.ts`
-Expected: PASS (13 tests)
+Expected: PASS (14 tests)
 
 - [ ] **Step 5: Commit**
 
