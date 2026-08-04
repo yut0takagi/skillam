@@ -124,6 +124,45 @@ describe('projects routes', () => {
         fs.rmSync(root, { recursive: true, force: true })
       }
     })
+
+    it('does not resurface a project as a candidate after it is marked excluded via PUT', async () => {
+      const fs = await import('node:fs')
+      const os = await import('node:os')
+      const path = await import('node:path')
+
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scan-exclude-test-'))
+      const projectDir = path.join(root, 'project-x')
+      fs.mkdirSync(path.join(projectDir, '.git'), { recursive: true })
+
+      try {
+        await app.inject({ method: 'POST', url: '/auto-detect-roots', payload: { path: root } })
+
+        const initialScan = await app.inject({ method: 'GET', url: '/projects/scan' })
+        expect(initialScan.json()).toEqual([{ path: projectDir, name: 'project-x' }])
+
+        const registered = await app.inject({
+          method: 'POST',
+          url: '/projects',
+          payload: { path: projectDir, name: 'project-x', autoDetected: true }
+        })
+        const { id } = registered.json()
+
+        const scanAfterRegister = await app.inject({ method: 'GET', url: '/projects/scan' })
+        expect(scanAfterRegister.json()).toEqual([])
+
+        const updateResponse = await app.inject({
+          method: 'PUT',
+          url: `/projects/${id}`,
+          payload: { excluded: true }
+        })
+        expect(updateResponse.json()).toMatchObject({ excluded: true })
+
+        const scanAfterExclude = await app.inject({ method: 'GET', url: '/projects/scan' })
+        expect(scanAfterExclude.json()).toEqual([])
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+      }
+    })
   })
 
   describe('projects CRUD', () => {
