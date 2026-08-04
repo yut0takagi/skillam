@@ -39,4 +39,9 @@ describe('RoleMcpServersRepository', () => {
       }
     ])
   })
+
+  it('defaults env to an empty object when omitted', () => {
+    const result = repo.replaceForRole(roleId, [{ name: 'no-env', command: { command: 'true' } }])
+    expect(result[0].env).toEqual({})
+  })
 })

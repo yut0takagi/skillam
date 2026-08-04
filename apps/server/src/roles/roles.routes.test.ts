@@ -254,4 +254,67 @@ describe('roles routes', () => {
     expect(response.statusCode).toBe(400)
     expect(response.json()).not.toHaveProperty('code')
   })
+
+  it('replaces agents via PUT /roles/:id/agents and reflects them in GET /roles/:id', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-a' } })
+    const { id } = created.json()
+
+    const putResponse = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/agents`,
+      payload: { agents: [{ name: 'code-reviewer', markdownBody: '# Reviewer', source: 'authored' }] }
+    })
+    expect(putResponse.statusCode).toBe(200)
+
+    const getResponse = await app.inject({ method: 'GET', url: `/roles/${id}` })
+    expect(getResponse.json().agents).toEqual([
+      { id: expect.any(Number), name: 'code-reviewer', markdownBody: '# Reviewer', source: 'authored' }
+    ])
+  })
+
+  it('returns 404 for PUT /roles/:id/agents when role is missing', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/roles/999/agents',
+      payload: { agents: [] }
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('rejects PUT /roles/:id/agents when the body is missing', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-agents-b' } })
+    const { id } = created.json()
+
+    const response = await app.inject({ method: 'PUT', url: `/roles/${id}/agents` })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects PUT /roles/:id/agents when agents is not an array', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-agents-c' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/agents`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('returns a clean 400 instead of a raw SQLite error for invalid agent source values', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'role-agents-d' } })
+    const { id } = created.json()
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/agents`,
+      payload: { agents: [{ name: 'x', markdownBody: 'y', source: 'bogus' }] }
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).not.toHaveProperty('code')
+  })
 })
