@@ -6,10 +6,10 @@ export interface ManagedState {
 }
 
 export const EMPTY_MANAGED_STATE: ManagedState = Object.freeze({
-  mcpServers: Object.freeze([]) as string[],
-  materialized: Object.freeze([]) as string[],
-  permissionAllow: Object.freeze([]) as string[],
-  permissionDeny: Object.freeze([]) as string[]
+  mcpServers: Object.freeze([]) as unknown as string[],
+  materialized: Object.freeze([]) as unknown as string[],
+  permissionAllow: Object.freeze([]) as unknown as string[],
+  permissionDeny: Object.freeze([]) as unknown as string[]
 })
 
 function createEmptyManagedState(): ManagedState {
