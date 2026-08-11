@@ -1,0 +1,79 @@
+// apps/server/src/catalog/skills-scanner.ts
+import fs from 'node:fs'
+import path from 'node:path'
+import { findDirsNamed, parseFrontmatterField } from './scan-helpers.js'
+
+export interface SkillCandidate {
+  source: 'user' | 'plugin' | 'project-local'
+  name: string
+  description: string
+  path: string
+}
+
+interface ScanSkillsInput {
+  userSkillsRoot: string | undefined
+  pluginsCacheRoot: string | undefined
+  projectPaths: string[]
+}
+
+function readSkillAt(dir: string, source: SkillCandidate['source']): SkillCandidate | undefined {
+  const skillMdPath = path.join(dir, 'SKILL.md')
+  if (!fs.existsSync(skillMdPath)) {
+    return undefined
+  }
+  const content = fs.readFileSync(skillMdPath, 'utf-8')
+  const name = parseFrontmatterField(content, 'name')
+  const description = parseFrontmatterField(content, 'description')
+  if (!name || !description) {
+    return undefined
+  }
+  return { source, name, description, path: dir }
+}
+
+function scanDirectSkillChildren(
+  skillsRoot: string,
+  source: SkillCandidate['source']
+): SkillCandidate[] {
+  if (!fs.existsSync(skillsRoot)) {
+    return []
+  }
+  const candidates: SkillCandidate[] = []
+  for (const entry of fs.readdirSync(skillsRoot)) {
+    const entryPath = path.join(skillsRoot, entry)
+    let stat: fs.Stats
+    try {
+      stat = fs.statSync(entryPath)
+    } catch {
+      continue
+    }
+    if (!stat.isDirectory()) {
+      continue
+    }
+    const skill = readSkillAt(entryPath, source)
+    if (skill) {
+      candidates.push(skill)
+    }
+  }
+  return candidates
+}
+
+export function scanSkills(input: ScanSkillsInput): SkillCandidate[] {
+  const candidates: SkillCandidate[] = []
+
+  if (input.userSkillsRoot) {
+    candidates.push(...scanDirectSkillChildren(input.userSkillsRoot, 'user'))
+  }
+
+  if (input.pluginsCacheRoot) {
+    for (const skillsDir of findDirsNamed(input.pluginsCacheRoot, 'skills')) {
+      candidates.push(...scanDirectSkillChildren(skillsDir, 'plugin'))
+    }
+  }
+
+  for (const projectPath of input.projectPaths) {
+    const projectSkillsRoot = path.join(projectPath, '.claude', 'skills')
+    candidates.push(...scanDirectSkillChildren(projectSkillsRoot, 'project-local'))
+  }
+
+  return candidates
+}
