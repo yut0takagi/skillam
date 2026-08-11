@@ -8,6 +8,10 @@ function tableNames(db: ReturnType<typeof openDb>): string[] {
   )
 }
 
+function columnNames(db: ReturnType<typeof openDb>, table: string): string[] {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((row) => row.name)
+}
+
 describe('runMigrations', () => {
   it('creates the roles, role_*, project, and secrets tables', () => {
     const db = openDb(':memory:')
@@ -37,7 +41,21 @@ describe('runMigrations', () => {
     expect(() => runMigrations(db)).not.toThrow()
 
     const { count } = db.prepare('SELECT COUNT(*) AS count FROM _migrations').get() as { count: number }
-    expect(count).toBe(3)
+    expect(count).toBe(4)
+
+    db.close()
+  })
+
+  it('creates the apply tables and columns', () => {
+    const db = openDb(':memory:')
+
+    runMigrations(db)
+
+    expect(tableNames(db)).toEqual(expect.arrayContaining(['project_roles', 'apply_history']))
+    expect(columnNames(db, 'projects')).toEqual(
+      expect.arrayContaining(['last_applied_role_id', 'last_applied_at'])
+    )
+    expect(columnNames(db, 'role_agents')).toContain('source_path')
 
     db.close()
   })
