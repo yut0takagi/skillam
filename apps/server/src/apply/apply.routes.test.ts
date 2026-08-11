@@ -252,10 +252,18 @@ describe('apply routes', () => {
 // so exercising a history-recording failure means bypassing `buildApp` and
 // registering `applyRoutes` directly on a bare Fastify instance, reusing the
 // real repositories for everything except the one dependency under test.
-class ThrowsOnSuccessHistoryRepository extends ApplyHistoryRepository {
+class ThrowsOnStatusHistoryRepository extends ApplyHistoryRepository {
+  constructor(
+    db: Database.Database,
+    private readonly statusToThrowOn: 'success' | 'failed',
+    private readonly failureMessage: string
+  ) {
+    super(db)
+  }
+
   record(input: RecordApplyInput): ApplyHistoryEntry {
-    if (input.status === 'success') {
-      throw new Error('disk is full')
+    if (input.status === this.statusToThrowOn) {
+      throw new Error(this.failureMessage)
     }
     return super.record(input)
   }
@@ -287,7 +295,7 @@ describe('apply route: history recording fails after a successful write', () => 
       agents: new RoleAgentsRepository(db),
       mcpServers: new RoleMcpServersRepository(db),
       permissions,
-      history: new ThrowsOnSuccessHistoryRepository(db),
+      history: new ThrowsOnStatusHistoryRepository(db, 'success', 'disk is full'),
       secrets: new SecretsRepository(db),
       masterKeyProvider: new MasterKeyProvider(new InMemoryKeychainClient())
     })
@@ -306,6 +314,62 @@ describe('apply route: history recording fails after a successful write', () => 
       expect(response.statusCode).toBe(500)
       expect(response.json().error).toBe(
         '適用はファイルに書き込まれましたが、履歴の記録に失敗しました: disk is full'
+      )
+
+      const history = await app.inject({
+        method: 'GET',
+        url: `/projects/${project.id}/apply-history`
+      })
+      expect(history.json()).toEqual([])
+    } finally {
+      fs.rmSync(scratchRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('apply route: history recording also fails after a failed write', () => {
+  it('reports both the apply error and the record error, and leaves no history row', async () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    const scratchRoot = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-apply-double-fail-test-'))
+    )
+    const projectPath = path.join(scratchRoot, 'project')
+    fs.mkdirSync(projectPath, { recursive: true })
+
+    const projects = new ProjectsRepository(db)
+    const roles = new RolesRepository(db)
+    const mcpServers = new RoleMcpServersRepository(db)
+
+    const project = projects.create({ path: projectPath, name: 'p' })
+    const role = roles.create({ name: 'dev' })
+    mcpServers.replaceForRole(role.id, [
+      { name: 'github', command: { command: 'npx' }, env: { TOKEN: 'secret_ref:mcp:github:GONE' } }
+    ])
+
+    const app = Fastify({ logger: false })
+    app.register(applyRoutes, {
+      projects,
+      roles,
+      skills: new RoleSkillsRepository(db),
+      agents: new RoleAgentsRepository(db),
+      mcpServers,
+      permissions: new RolePermissionsRepository(db),
+      history: new ThrowsOnStatusHistoryRepository(db, 'failed', 'sqlite is locked'),
+      secrets: new SecretsRepository(db),
+      masterKeyProvider: new MasterKeyProvider(new InMemoryKeychainClient())
+    })
+
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/projects/${project.id}/apply`,
+        payload: { roleId: role.id }
+      })
+
+      expect(response.statusCode).toBe(500)
+      expect(response.json().error).toBe(
+        '適用に失敗し、その記録も残せませんでした: シークレット参照が解決できません: mcp:github:GONE / sqlite is locked'
       )
 
       const history = await app.inject({

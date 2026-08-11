@@ -95,15 +95,28 @@ export const applyRoutes: FastifyPluginAsync<ApplyRouteDeps> = async (app, deps)
         executeApplyPlan(plan, deps)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        const entry = deps.history.record({
-          projectId: project.id,
-          roleId,
-          diff,
-          managed: plan.managed,
-          status: 'failed',
-          errorMessage: message
-        })
-        return reply.status(500).send({ error: message, historyId: entry.id })
+        try {
+          const entry = deps.history.record({
+            projectId: project.id,
+            roleId,
+            diff,
+            managed: plan.managed,
+            status: 'failed',
+            errorMessage: message
+          })
+          return reply.status(500).send({ error: message, historyId: entry.id })
+        } catch (recordError) {
+          // The apply already failed and may have written partial state;
+          // now recording that failure has ALSO failed, so there is no
+          // history row either. Disk and history have diverged with no
+          // trace of why — surface both error messages since nothing else
+          // will.
+          const recordMessage = recordError instanceof Error ? recordError.message : String(recordError)
+          request.log.error(recordError, 'failed to record a failed apply')
+          return reply.status(500).send({
+            error: `適用に失敗し、その記録も残せませんでした: ${message} / ${recordMessage}`
+          })
+        }
       }
 
       try {
