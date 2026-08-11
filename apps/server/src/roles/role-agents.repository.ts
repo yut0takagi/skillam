@@ -38,7 +38,13 @@ export class RoleAgentsRepository {
         'INSERT INTO role_agents (role_id, name, markdown_body, source, source_path) VALUES (?, ?, ?, ?, ?)'
       )
       for (const entry of entries) {
-        insert.run(roleId, entry.name, entry.markdownBody, entry.source, entry.sourcePath ?? '')
+        insert.run(
+          roleId,
+          entry.name,
+          entry.markdownBody,
+          entry.source,
+          entry.source === 'reference' ? (entry.sourcePath ?? '') : ''
+        )
       }
     })
     replace(items)

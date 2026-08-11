@@ -69,4 +69,15 @@ describe('RoleAgentsRepository', () => {
 
     expect(saved[0].sourcePath).toBe('')
   })
+
+  it('drops sourcePath for an authored agent', () => {
+    const role = new RolesRepository(db).create({ name: 'authored-with-stray-path' })
+    const repo = new RoleAgentsRepository(db)
+
+    const saved = repo.replaceForRole(role.id, [
+      { name: 'writer', markdownBody: '# Writer', source: 'authored', sourcePath: '/etc/passwd' }
+    ])
+
+    expect(saved[0].sourcePath).toBe('')
+  })
 })
