@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_MANAGED_STATE } from './managed-state.js'
-import { planSettings } from './plan-settings.js'
+import { planSettings, UnsupportedSettingsError } from './plan-settings.js'
 
 describe('planSettings', () => {
   it('adds the role entries to an empty settings file', () => {
@@ -81,5 +81,25 @@ describe('planSettings', () => {
     })
 
     expect(result.settings).toEqual({ hooks: {} })
+  })
+
+  it('refuses to overwrite a permissions value it cannot interpret', () => {
+    expect(() =>
+      planSettings({
+        currentSettings: { permissions: 'all' },
+        rolePermissions: { allow: ['Edit'] },
+        previous: EMPTY_MANAGED_STATE
+      })
+    ).toThrow(UnsupportedSettingsError)
+  })
+
+  it('accepts settings with no permissions key at all', () => {
+    const result = planSettings({
+      currentSettings: { language: 'ja' },
+      rolePermissions: { allow: ['Edit'] },
+      previous: EMPTY_MANAGED_STATE
+    })
+
+    expect(result.settings).toEqual({ language: 'ja', permissions: { allow: ['Edit'] } })
   })
 })

@@ -69,4 +69,26 @@ describe('planMcp', () => {
 
     expect(result.mcpJson.$schema).toBe('https://example.com/schema.json')
   })
+
+  it('treats a string command as the command field instead of dropping it', () => {
+    const result = planMcp({
+      currentMcpJson: {},
+      roleServers: [{ name: 'github', command: 'npx', env: { TOKEN: 'x' } }],
+      previous: EMPTY_MANAGED_STATE
+    })
+
+    expect(result.mcpJson.mcpServers).toEqual({ github: { command: 'npx', env: { TOKEN: 'x' } } })
+  })
+
+  it('lets the role env win over an env embedded in the command object', () => {
+    const result = planMcp({
+      currentMcpJson: {},
+      roleServers: [
+        { name: 'github', command: { command: 'npx', env: { OLD: 'stale' } }, env: { TOKEN: 'new' } }
+      ],
+      previous: EMPTY_MANAGED_STATE
+    })
+
+    expect(result.mcpJson.mcpServers).toEqual({ github: { command: 'npx', env: { TOKEN: 'new' } } })
+  })
 })

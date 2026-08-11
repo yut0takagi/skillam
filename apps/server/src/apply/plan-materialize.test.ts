@@ -101,4 +101,14 @@ describe('planMaterialize', () => {
       { type: 'create-link', path: '.claude/skills/drawio', target: '/home/u/drawio' }
     ])
   })
+
+  it('still emits a removal for a managed path that is already gone from disk', () => {
+    const result = planMaterialize({
+      desired: [],
+      current: {},
+      previouslyManaged: ['.claude/skills/vanished']
+    })
+
+    expect(result.operations).toEqual([{ type: 'remove', path: '.claude/skills/vanished' }])
+  })
 })

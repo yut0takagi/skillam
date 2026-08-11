@@ -1,5 +1,12 @@
 import { staleEntries, type ManagedState } from './managed-state.js'
 
+export class UnsupportedSettingsError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UnsupportedSettingsError'
+  }
+}
+
 export interface RolePermissionsShape {
   allow?: string[]
   deny?: string[]
@@ -24,6 +31,11 @@ function readStringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === 'string')
 }
 
+// Entries are tracked by string identity, not provenance: if the user manually
+// re-adds a string identical to one skillam previously wrote and the role later
+// drops it, mergeList has no way to tell the manual re-add apart from skillam's
+// own stale write, so it is removed. This is inherent to name-based tracking;
+// do not "fix" it by loosening staleEntries, or the removal contract breaks.
 function mergeList(current: string[], roleEntries: string[], previouslyManaged: string[]): string[] {
   const stale = staleEntries(previouslyManaged, roleEntries)
   const merged = current.filter((entry) => !stale.includes(entry))
@@ -36,10 +48,13 @@ function mergeList(current: string[], roleEntries: string[], previouslyManaged: 
 }
 
 export function planSettings(input: PlanSettingsInput): PlanSettingsResult {
-  const currentPermissions =
-    typeof input.currentSettings.permissions === 'object' && input.currentSettings.permissions !== null
-      ? (input.currentSettings.permissions as Record<string, unknown>)
-      : {}
+  const rawPermissions = input.currentSettings.permissions
+  if (rawPermissions !== undefined && (typeof rawPermissions !== 'object' || rawPermissions === null)) {
+    throw new UnsupportedSettingsError(
+      '.claude/settings.json の permissions がオブジェクトではありません。skillam は解釈できない値を上書きしません。'
+    )
+  }
+  const currentPermissions = (rawPermissions ?? {}) as Record<string, unknown>
 
   const roleAllow = input.rolePermissions.allow ?? []
   const roleDeny = input.rolePermissions.deny ?? []

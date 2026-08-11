@@ -31,9 +31,13 @@ export function planMcp(input: PlanMcpInput): PlanMcpResult {
 
   for (const server of input.roleServers) {
     const base =
-      typeof server.command === 'object' && server.command !== null
-        ? { ...(server.command as Record<string, unknown>) }
-        : {}
+      typeof server.command === 'string'
+        ? { command: server.command }
+        : typeof server.command === 'object' && server.command !== null
+          ? { ...(server.command as Record<string, unknown>) }
+          : {}
+    // The role-level env intentionally wins over any env embedded in the command
+    // object: it is the one that carries resolved secret_ref: placeholders.
     currentServers[server.name] =
       Object.keys(server.env).length > 0 ? { ...base, env: server.env } : base
   }
