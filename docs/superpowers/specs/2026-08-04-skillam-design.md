@@ -131,7 +131,7 @@ apply_history (id, project_id, role_id, diff_json, status, applied_at)
 
 **実体化方式**: Skills と `source='reference'` のAgentsはシンボリックリンクで実体化する。元ファイルを直せば全プロジェクトに即反映され、ドリフト検知もリンク先パスの比較だけで済むため。`source='authored'`（skillam上で作成しリンク元となる実ファイルを持たない）のAgentsのみ、実ファイルとして書き出す。
 
-**管理対象キー**: `.claude/settings.json` は `permissions` と `enabledPlugins`（`{"<plugin>@<marketplace>": true}` 形式）、`.mcp.json` は `mcpServers`。`hooks` はスコープ外（§3）のため読み書きしない。
+**管理対象キー**: `.claude/settings.json` は `permissions.allow` / `permissions.deny`、`.mcp.json` は `mcpServers`。`hooks` はスコープ外（§3）のため読み書きしない。`enabledPlugins` も管理しない — ロールに「どのプラグインを有効化するか」を表す列がなく、`role_skills` のパスから `<plugin>@<marketplace>` を復元するのはプラグインキャッシュのディレクトリ構造に依存して壊れやすいため。またSkillをsymlinkで実体化する方式では、プラグインが有効化されている必要がない。
 
 **削除の意味論**: 適用のたびに「skillamが書いた対象」（MCPサーバー名・symlinkパス・permissionsエントリ・enabledPluginsキー）を `apply_history` に記録する。再適用時は、前回記録に含まれるが今回のロールには含まれない項目のみを削除する。記録に載っていない項目＝ユーザーが手動で追加したものは、ロールに含まれなくても温存される。
 
