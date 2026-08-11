@@ -42,4 +42,15 @@ describe('ProjectRolesRepository', () => {
 
     expect(saved).toEqual([{ roleId: roleIds[1], priority: 0 }])
   })
+
+  it('deduplicates repeated role ids', () => {
+    const repo = new ProjectRolesRepository(db)
+
+    const saved = repo.replaceForProject(projectId, [roleIds[0], roleIds[0], roleIds[1]])
+
+    expect(saved).toEqual([
+      { roleId: roleIds[0], priority: 0 },
+      { roleId: roleIds[1], priority: 1 }
+    ])
+  })
 })

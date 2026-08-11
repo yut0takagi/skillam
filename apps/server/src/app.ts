@@ -11,6 +11,8 @@ import { RolePermissionsRepository } from './roles/role-permissions.repository.j
 import { AutoDetectRootsRepository } from './projects/auto-detect-roots.repository.js'
 import { ProjectsRepository } from './projects/projects.repository.js'
 import { projectsRoutes } from './projects/projects.routes.js'
+import { ProjectRolesRepository } from './projects/project-roles.repository.js'
+import { projectRolesRoutes } from './projects/project-roles.routes.js'
 import type { KeychainClient } from './secrets/keychain-client.js'
 import { KeychainAccessError } from './secrets/keychain-client.js'
 import { MacKeychainClient } from './secrets/mac-keychain-client.js'
@@ -71,6 +73,12 @@ export function buildApp(
   app.register(projectsRoutes, {
     autoDetectRoots: new AutoDetectRootsRepository(db),
     projects: new ProjectsRepository(db)
+  })
+
+  app.register(projectRolesRoutes, {
+    projects: new ProjectsRepository(db),
+    projectRoles: new ProjectRolesRepository(db),
+    roles: new RolesRepository(db)
   })
 
   app.register(secretsRoutes, {

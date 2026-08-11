@@ -17,6 +17,7 @@ export class ProjectRolesRepository {
   }
 
   replaceForProject(projectId: number, roleIds: number[]): ProjectRole[] {
+    const uniqueRoleIds = Array.from(new Set(roleIds))
     const replace = this.db.transaction((ids: number[]) => {
       this.db.prepare('DELETE FROM project_roles WHERE project_id = ?').run(projectId)
       const insert = this.db.prepare(
@@ -26,7 +27,7 @@ export class ProjectRolesRepository {
         insert.run(projectId, roleId, index)
       })
     })
-    replace(roleIds)
+    replace(uniqueRoleIds)
     return this.listForProject(projectId)
   }
 }
