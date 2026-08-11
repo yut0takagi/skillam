@@ -39,10 +39,10 @@ export function resolveSecretRefs(
     const entry = { ...(definition as Record<string, unknown>) }
     const env = entry.env
     if (typeof env === 'object' && env !== null) {
-      const resolvedEnv: Record<string, string> = {}
+      const resolvedEnv: Record<string, unknown> = {}
       for (const [envKey, value] of Object.entries(env as Record<string, unknown>)) {
         if (typeof value !== 'string' || !value.startsWith(SECRET_REF_PREFIX)) {
-          resolvedEnv[envKey] = String(value)
+          resolvedEnv[envKey] = value
           continue
         }
         const refName = value.slice(SECRET_REF_PREFIX.length)

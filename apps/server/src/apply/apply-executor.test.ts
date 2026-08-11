@@ -204,23 +204,42 @@ describe('executeApplyPlan', () => {
     ).not.toThrow()
   })
 
-  it('applies removals before creations', () => {
-    const target = path.join(scratchRoot, 'target')
-    fs.mkdirSync(target, { recursive: true })
+  // planMaterialize currently guarantees removal paths and creation paths are disjoint, so this
+  // scenario can't arise from buildApplyPlan today. It asserts the executor's own ordering
+  // contract in isolation, independent of what the planner happens to emit.
+  it('applies removals before creations when they target the same path', () => {
+    const oldTarget = path.join(scratchRoot, 'old-target')
+    const newTarget = path.join(scratchRoot, 'new-target')
+    fs.mkdirSync(oldTarget, { recursive: true })
+    fs.mkdirSync(newTarget, { recursive: true })
     const samePath = path.join(projectPath, '.claude', 'skills', 'shared')
     fs.mkdirSync(path.dirname(samePath), { recursive: true })
-    fs.symlinkSync(path.join(scratchRoot, 'old-target'), samePath)
+    fs.symlinkSync(oldTarget, samePath)
 
     executeApplyPlan(
       planWith({
         operations: [
-          { type: 'create-link', path: samePath, target },
-          { type: 'remove', path: path.join(projectPath, '.claude', 'skills', 'gone') }
+          { type: 'remove', path: samePath },
+          { type: 'create-link', path: samePath, target: newTarget }
         ]
       }),
       deps
     )
 
-    expect(fs.readlinkSync(samePath)).toBe(target)
+    expect(fs.readlinkSync(samePath)).toBe(newTarget)
+  })
+
+  it('preserves non-string env values instead of coercing them', () => {
+    executeApplyPlan(
+      planWith({
+        mcpAfterObject: {
+          mcpServers: { svc: { command: 'node', env: { PORT: 3000, DEBUG: true, NAME: 'x' } } }
+        }
+      }),
+      deps
+    )
+
+    const written = JSON.parse(fs.readFileSync(path.join(projectPath, '.mcp.json'), 'utf-8'))
+    expect(written.mcpServers.svc.env).toEqual({ PORT: 3000, DEBUG: true, NAME: 'x' })
   })
 })
