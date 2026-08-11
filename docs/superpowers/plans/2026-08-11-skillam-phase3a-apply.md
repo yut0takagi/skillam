@@ -1825,7 +1825,7 @@ import type { RoleMcpServersRepository } from '../roles/role-mcp-servers.reposit
 import type { RolePermissionsRepository } from '../roles/role-permissions.repository.js'
 import type { ApplyHistoryRepository } from './apply-history.repository.js'
 import { EMPTY_MANAGED_STATE, type ManagedState } from './managed-state.js'
-import { planSettings, type RolePermissionsShape } from './plan-settings.js'
+import { planSettings, UnsupportedSettingsError, type RolePermissionsShape } from './plan-settings.js'
 import { planMcp } from './plan-mcp.js'
 import {
   planMaterialize,
@@ -1867,16 +1867,24 @@ function readFileOrNull(filePath: string): string | null {
   }
 }
 
-function parseJsonObject(raw: string | null): Record<string, unknown> {
+function parseJsonObject(raw: string | null, filePath: string): Record<string, unknown> {
   if (raw === null) {
     return {}
   }
+  let parsed: unknown
   try {
-    const parsed = JSON.parse(raw)
-    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {}
+    parsed = JSON.parse(raw)
   } catch {
-    return {}
+    throw new UnsupportedSettingsError(
+      `${filePath} が JSON として読めません。skillam は解釈できないファイルを上書きしません。`
+    )
   }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new UnsupportedSettingsError(
+      `${filePath} の中身がオブジェクトではありません。skillam は解釈できないファイルを上書きしません。`
+    )
+  }
+  return parsed as Record<string, unknown>
 }
 
 function formatJson(value: unknown): string {
@@ -1917,7 +1925,7 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
   const settingsPath = path.join(project.path, '.claude', 'settings.json')
   const settingsBefore = readFileOrNull(settingsPath)
   const settingsResult = planSettings({
-    currentSettings: parseJsonObject(settingsBefore),
+    currentSettings: parseJsonObject(settingsBefore, settingsPath),
     rolePermissions: toRolePermissions(deps.permissions.getForRole(roleId)?.permissions),
     previous
   })
@@ -1925,7 +1933,7 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
   const mcpPath = path.join(project.path, '.mcp.json')
   const mcpBefore = readFileOrNull(mcpPath)
   const mcpResult = planMcp({
-    currentMcpJson: parseJsonObject(mcpBefore),
+    currentMcpJson: parseJsonObject(mcpBefore, mcpPath),
     roleServers: deps.mcpServers.listForRole(roleId).map((server) => ({
       name: server.name,
       command: server.command,
@@ -1991,6 +1999,17 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
     }
   }
 }
+```
+
+**壊れたファイルを上書きしない:** 既存の `settings.json` / `.mcp.json` がJSONとして読めない、あるいはオブジェクトでない場合は `UnsupportedSettingsError` を投げてプレビュー自体を失敗させる。黙って `{}` として扱うと、ユーザーのファイル内容を丸ごと消して上書きしてしまうため。Task 10 のテストにこのケースを1件追加すること:
+
+```ts
+  it('refuses to plan against a settings.json that is not valid JSON', () => {
+    fs.mkdirSync(path.join(projectPath, '.claude'), { recursive: true })
+    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.json'), '{ broken')
+
+    expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(UnsupportedSettingsError)
+  })
 ```
 
 - [ ] **Step 4: テストが通ることを確認してコミット**
