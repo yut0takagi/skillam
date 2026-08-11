@@ -418,6 +418,7 @@ export class ProjectRolesRepository {
   }
 
   replaceForProject(projectId: number, roleIds: number[]): ProjectRole[] {
+    const uniqueRoleIds = Array.from(new Set(roleIds))
     const replace = this.db.transaction((ids: number[]) => {
       this.db.prepare('DELETE FROM project_roles WHERE project_id = ?').run(projectId)
       const insert = this.db.prepare(
@@ -427,7 +428,7 @@ export class ProjectRolesRepository {
         insert.run(projectId, roleId, index)
       })
     })
-    replace(roleIds)
+    replace(uniqueRoleIds)
     return this.listForProject(projectId)
   }
 }
@@ -456,8 +457,13 @@ git commit -m "feat(server): add project roles repository"
 
 `apps/server/src/projects/project-roles.routes.test.ts`:
 
+`POST /projects` は登録前に `fs.existsSync` でパスの実在を検証するため、実在しないリテラルパスを渡すとセットアップが 400 になりテストが誤った理由で落ちる。既存の `projects.routes.test.ts` と同じく一時ディレクトリを作ること。
+
 ```ts
-import { beforeEach, describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
 import { openDb } from '../db/client.js'
@@ -468,23 +474,31 @@ import { InMemoryKeychainClient } from '../secrets/in-memory-keychain-client.js'
 describe('project roles routes', () => {
   let db: Database.Database
   let app: FastifyInstance
+  let scratchRoot: string
   let projectId: number
   let roleId: number
 
   beforeEach(async () => {
     db = openDb(':memory:')
     runMigrations(db)
+    scratchRoot = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-project-roles-route-test-'))
+    )
     app = buildApp(db, new InMemoryKeychainClient())
 
     const project = await app.inject({
       method: 'POST',
       url: '/projects',
-      payload: { path: '/tmp/project-roles-test', name: 'p' }
+      payload: { path: scratchRoot, name: 'p' }
     })
     projectId = project.json().id
 
     const role = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'dev' } })
     roleId = role.json().id
+  })
+
+  afterEach(() => {
+    fs.rmSync(scratchRoot, { recursive: true, force: true })
   })
 
   it('returns an empty list before any role is assigned', async () => {
