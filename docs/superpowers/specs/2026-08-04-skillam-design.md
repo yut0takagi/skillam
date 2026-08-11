@@ -122,12 +122,20 @@ apply_history (id, project_id, role_id, diff_json, status, applied_at)
 2. サーバー側で以下を生成:
    - .claude/settings.json の管理対象キー（permissions, enabledPlugins等）の新しい値
    - .mcp.json の mcpServers（シークレットは復号してから注入）
-   - .claude/skills/ 配下に必要なシンボリックリンク/コピーの差分
+   - .claude/skills/ 配下に必要なシンボリックリンクの差分
    - .claude/agents/ 配下に必要なファイルの差分
 3. 各ファイルについて「現在の内容」と「適用後の内容」をdiff表示（管理対象キーのみ）
 4. ユーザーが確認して「適用」を押すと実際に書き込み、apply_history に記録
 5. 書き込み後、ファイルシステム上の実ファイルが正
 ```
+
+**実体化方式**: Skills と `source='reference'` のAgentsはシンボリックリンクで実体化する。元ファイルを直せば全プロジェクトに即反映され、ドリフト検知もリンク先パスの比較だけで済むため。`source='authored'`（skillam上で作成しリンク元となる実ファイルを持たない）のAgentsのみ、実ファイルとして書き出す。
+
+**管理対象キー**: `.claude/settings.json` は `permissions` と `enabledPlugins`（`{"<plugin>@<marketplace>": true}` 形式）、`.mcp.json` は `mcpServers`。`hooks` はスコープ外（§3）のため読み書きしない。
+
+**削除の意味論**: 適用のたびに「skillamが書いた対象」（MCPサーバー名・symlinkパス・permissionsエントリ・enabledPluginsキー）を `apply_history` に記録する。再適用時は、前回記録に含まれるが今回のロールには含まれない項目のみを削除する。記録に載っていない項目＝ユーザーが手動で追加したものは、ロールに含まれなくても温存される。
+
+**ユーザーレベルSkillの制約**: `~/.claude/skills/` 配下のSkillは全プロジェクトで自動的に有効なため、skillamからプロジェクト単位で無効化することはできない。適用でできるのはプロジェクトへの追加方向のみ。
 
 **ドリフト検知**: プロジェクト一覧画面で、各プロジェクトの現在のファイル内容と最後に適用したロール定義を比較し、ズレがあればバッジ表示する。
 
