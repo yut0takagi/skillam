@@ -13,6 +13,14 @@ interface ApplyHistoryRow {
   applied_at: string
 }
 
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? {}) ?? '{}'
+  } catch {
+    return '{}'
+  }
+}
+
 function toEntry(row: ApplyHistoryRow): ApplyHistoryEntry {
   let diff: unknown = {}
   try {
@@ -45,7 +53,7 @@ export class ApplyHistoryRepository {
       .get({
         projectId: input.projectId,
         roleId: input.roleId,
-        diffJson: JSON.stringify(input.diff ?? {}),
+        diffJson: safeStringify(input.diff),
         managedJson: serializeManagedState(input.managed),
         status: input.status,
         errorMessage: input.errorMessage ?? ''

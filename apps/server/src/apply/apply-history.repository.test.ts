@@ -104,4 +104,30 @@ describe('ApplyHistoryRepository', () => {
     expect(entry?.roleId).toBeNull()
     expect(entry?.managed.mcpServers).toEqual(['github'])
   })
+
+  it('records an apply whose diff cannot be serialized', () => {
+    const repo = new ApplyHistoryRepository(db)
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+
+    const entry = repo.record({
+      projectId,
+      roleId,
+      diff: circular,
+      managed: { ...EMPTY_MANAGED_STATE, mcpServers: ['github'] },
+      status: 'success'
+    })
+
+    expect(entry.diff).toEqual({})
+    expect(entry.managed.mcpServers).toEqual(['github'])
+  })
+
+  it('reads back an empty diff when the stored diff json is corrupt', () => {
+    const repo = new ApplyHistoryRepository(db)
+    db.prepare(
+      "INSERT INTO apply_history (project_id, role_id, diff_json, managed_json, status) VALUES (?, ?, '{not json', '{}', 'success')"
+    ).run(projectId, roleId)
+
+    expect(repo.lastSuccessful(projectId)?.diff).toEqual({})
+  })
 })
