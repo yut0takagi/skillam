@@ -88,6 +88,40 @@ describe('ApplyHistoryRepository', () => {
     expect(new ApplyHistoryRepository(db).lastSuccessful(projectId)).toBeUndefined()
   })
 
+  it('listSinceLastSuccess returns an empty list for a project with no history', () => {
+    expect(new ApplyHistoryRepository(db).listSinceLastSuccess(projectId)).toEqual([])
+  })
+
+  it('listSinceLastSuccess returns the last success plus every later row, oldest first', () => {
+    const repo = new ApplyHistoryRepository(db)
+    repo.record({ projectId, roleId, diff: {}, managed: EMPTY_MANAGED_STATE, status: 'failed', errorMessage: 'before' })
+    const success = repo.record({ projectId, roleId, diff: {}, managed: EMPTY_MANAGED_STATE, status: 'success' })
+    const failedA = repo.record({ projectId, roleId, diff: {}, managed: EMPTY_MANAGED_STATE, status: 'failed', errorMessage: 'a' })
+    const failedB = repo.record({ projectId, roleId, diff: {}, managed: EMPTY_MANAGED_STATE, status: 'failed', errorMessage: 'b' })
+
+    expect(repo.listSinceLastSuccess(projectId).map((entry) => entry.id)).toEqual([
+      success.id,
+      failedA.id,
+      failedB.id
+    ])
+  })
+
+  it('listSinceLastSuccess returns everything when there has never been a success', () => {
+    const repo = new ApplyHistoryRepository(db)
+    const first = repo.record({ projectId, roleId, diff: {}, managed: EMPTY_MANAGED_STATE, status: 'failed', errorMessage: 'a' })
+    const second = repo.record({ projectId, roleId, diff: {}, managed: EMPTY_MANAGED_STATE, status: 'failed', errorMessage: 'b' })
+
+    expect(repo.listSinceLastSuccess(projectId).map((entry) => entry.id)).toEqual([first.id, second.id])
+  })
+
+  it('listSinceLastSuccess returns just the success row when it is the newest', () => {
+    const repo = new ApplyHistoryRepository(db)
+    repo.record({ projectId, roleId, diff: {}, managed: EMPTY_MANAGED_STATE, status: 'failed', errorMessage: 'a' })
+    const success = repo.record({ projectId, roleId, diff: {}, managed: EMPTY_MANAGED_STATE, status: 'success' })
+
+    expect(repo.listSinceLastSuccess(projectId).map((entry) => entry.id)).toEqual([success.id])
+  })
+
   it('keeps history readable after its role is deleted', () => {
     const repo = new ApplyHistoryRepository(db)
     repo.record({

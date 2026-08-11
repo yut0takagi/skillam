@@ -76,4 +76,30 @@ export class ApplyHistoryRepository {
       .get(projectId) as ApplyHistoryRow | undefined
     return row ? toEntry(row) : undefined
   }
+
+  /**
+   * The most recent successful apply for the project, plus every row
+   * recorded after it (oldest first). When there has never been a
+   * successful apply, returns the project's entire history. This is what
+   * lets a retry after a failed apply treat everything skillam has
+   * attempted since its last known-good state as its own — including
+   * partial writes left behind by the failure — instead of tripping the
+   * "not created by skillam" conflict guard on its own leftovers.
+   */
+  listSinceLastSuccess(projectId: number): ApplyHistoryEntry[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM apply_history
+         WHERE project_id = @projectId
+           AND id >= COALESCE(
+             (SELECT id FROM apply_history
+              WHERE project_id = @projectId AND status = 'success'
+              ORDER BY id DESC LIMIT 1),
+             0
+           )
+         ORDER BY id ASC`
+      )
+      .all({ projectId }) as ApplyHistoryRow[]
+    return rows.map(toEntry)
+  }
 }

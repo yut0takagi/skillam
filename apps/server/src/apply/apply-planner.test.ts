@@ -16,6 +16,7 @@ import { UnsupportedSettingsError } from './plan-settings.js'
 import { MaterializeConflictError } from './plan-materialize.js'
 import { buildApplyPlan } from './apply-planner.js'
 import type { ApplyPlannerDeps } from './apply-planner.js'
+import { EMPTY_MANAGED_STATE } from './managed-state.js'
 
 describe('buildApplyPlan', () => {
   let db: Database.Database
@@ -215,6 +216,46 @@ describe('buildApplyPlan', () => {
     ])
 
     expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(MaterializeConflictError)
+  })
+
+  it('treats paths from a failed attempt since the last success as already managed, unblocking retry', () => {
+    const createdProject = project()
+    deps.history.record({
+      projectId: createdProject.id,
+      roleId,
+      diff: {},
+      managed: EMPTY_MANAGED_STATE,
+      status: 'success'
+    })
+    deps.history.record({
+      projectId: createdProject.id,
+      roleId,
+      diff: {},
+      managed: { ...EMPTY_MANAGED_STATE, materialized: ['.claude/skills/drawio'] },
+      status: 'failed',
+      errorMessage: 'boom'
+    })
+
+    const skillPath = path.join(scratchRoot, 'user-skills', 'drawio')
+    fs.mkdirSync(skillPath, { recursive: true })
+    new RoleSkillsRepository(db).replaceForRole(roleId, [{ skillSource: 'user', skillPath }])
+
+    // Simulate a partial write the failed attempt left behind: a plain file
+    // where a symlink is desired, so it does not yet match the role's plan
+    // and can only be recognized as skillam's own by the failed history row.
+    fs.mkdirSync(path.join(projectPath, '.claude', 'skills'), { recursive: true })
+    fs.writeFileSync(path.join(projectPath, '.claude', 'skills', 'drawio'), 'partial write')
+
+    const plan = buildApplyPlan(deps, createdProject, roleId)
+
+    expect(plan.operations).toEqual([
+      {
+        type: 'create-link',
+        path: path.join(projectPath, '.claude', 'skills', 'drawio'),
+        target: skillPath
+      }
+    ])
+    expect(plan.managed.materialized).toEqual(['.claude/skills/drawio'])
   })
 
   it('refuses to plan two skills whose basenames collide on the same destination path', () => {

@@ -2,12 +2,23 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { FastifyInstance } from 'fastify'
+import Fastify, { type FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
 import { openDb } from '../db/client.js'
 import { runMigrations } from '../db/migrate.js'
 import { buildApp } from '../app.js'
 import { InMemoryKeychainClient } from '../secrets/in-memory-keychain-client.js'
+import { RolesRepository } from '../roles/roles.repository.js'
+import { RoleSkillsRepository } from '../roles/role-skills.repository.js'
+import { RoleAgentsRepository } from '../roles/role-agents.repository.js'
+import { RoleMcpServersRepository } from '../roles/role-mcp-servers.repository.js'
+import { RolePermissionsRepository } from '../roles/role-permissions.repository.js'
+import { ProjectsRepository } from '../projects/projects.repository.js'
+import { SecretsRepository } from '../secrets/secrets.repository.js'
+import { MasterKeyProvider } from '../secrets/master-key-provider.js'
+import { ApplyHistoryRepository } from './apply-history.repository.js'
+import { applyRoutes } from './apply.routes.js'
+import type { ApplyHistoryEntry, RecordApplyInput } from './apply-history.types.js'
 
 describe('apply routes', () => {
   let db: Database.Database
@@ -233,5 +244,77 @@ describe('apply routes', () => {
     const response = await app.inject({ method: 'GET', url: '/projects/9999/apply-history' })
 
     expect(response.statusCode).toBe(404)
+  })
+})
+
+// The route plugin under test is registered by `buildApp` with a hard-coded
+// `new ApplyHistoryRepository(db)` and no seam to substitute it afterwards,
+// so exercising a history-recording failure means bypassing `buildApp` and
+// registering `applyRoutes` directly on a bare Fastify instance, reusing the
+// real repositories for everything except the one dependency under test.
+class ThrowsOnSuccessHistoryRepository extends ApplyHistoryRepository {
+  record(input: RecordApplyInput): ApplyHistoryEntry {
+    if (input.status === 'success') {
+      throw new Error('disk is full')
+    }
+    return super.record(input)
+  }
+}
+
+describe('apply route: history recording fails after a successful write', () => {
+  it('reports the disk/history divergence and leaves no history row, even though the files are on disk', async () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    const scratchRoot = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-apply-history-fail-test-'))
+    )
+    const projectPath = path.join(scratchRoot, 'project')
+    fs.mkdirSync(projectPath, { recursive: true })
+
+    const projects = new ProjectsRepository(db)
+    const roles = new RolesRepository(db)
+    const permissions = new RolePermissionsRepository(db)
+
+    const project = projects.create({ path: projectPath, name: 'p' })
+    const role = roles.create({ name: 'dev' })
+    permissions.setForRole(role.id, { permissions: { allow: ['Edit'] } })
+
+    const app = Fastify({ logger: false })
+    app.register(applyRoutes, {
+      projects,
+      roles,
+      skills: new RoleSkillsRepository(db),
+      agents: new RoleAgentsRepository(db),
+      mcpServers: new RoleMcpServersRepository(db),
+      permissions,
+      history: new ThrowsOnSuccessHistoryRepository(db),
+      secrets: new SecretsRepository(db),
+      masterKeyProvider: new MasterKeyProvider(new InMemoryKeychainClient())
+    })
+
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/projects/${project.id}/apply`,
+        payload: { roleId: role.id }
+      })
+
+      expect(
+        JSON.parse(fs.readFileSync(path.join(projectPath, '.claude', 'settings.json'), 'utf-8'))
+      ).toEqual({ permissions: { allow: ['Edit'] } })
+
+      expect(response.statusCode).toBe(500)
+      expect(response.json().error).toBe(
+        '適用はファイルに書き込まれましたが、履歴の記録に失敗しました: disk is full'
+      )
+
+      const history = await app.inject({
+        method: 'GET',
+        url: `/projects/${project.id}/apply-history`
+      })
+      expect(history.json()).toEqual([])
+    } finally {
+      fs.rmSync(scratchRoot, { recursive: true, force: true })
+    }
   })
 })

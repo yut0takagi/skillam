@@ -6,7 +6,8 @@ import type { RoleAgentsRepository } from '../roles/role-agents.repository.js'
 import type { RoleMcpServersRepository } from '../roles/role-mcp-servers.repository.js'
 import type { RolePermissionsRepository } from '../roles/role-permissions.repository.js'
 import type { ApplyHistoryRepository } from './apply-history.repository.js'
-import { EMPTY_MANAGED_STATE, type ManagedState } from './managed-state.js'
+import type { ApplyHistoryEntry } from './apply-history.types.js'
+import type { ManagedState } from './managed-state.js'
 import { planSettings, UnsupportedSettingsError, type RolePermissionsShape } from './plan-settings.js'
 import { planMcp } from './plan-mcp.js'
 import {
@@ -91,6 +92,36 @@ function readCurrentEntry(projectPath: string, relativePath: string): CurrentEnt
   return { kind: 'other' }
 }
 
+// Everything skillam has attempted since its last known-good state (i.e.
+// every history row from the last success onward, or the whole history if
+// there has never been a success) is treated as skillam's own for the
+// purpose of the conflict guard: a retry after a failed apply must be able
+// to overwrite paths a previous attempt already wrote, including partial
+// writes left behind by the failure, without tripping the "not created by
+// skillam" check. Order-stable de-duplicated union, oldest attempt first.
+function unionStringLists(lists: string[][]): string[] {
+  const seen = new Set<string>()
+  const union: string[] = []
+  for (const list of lists) {
+    for (const entry of list) {
+      if (!seen.has(entry)) {
+        seen.add(entry)
+        union.push(entry)
+      }
+    }
+  }
+  return union
+}
+
+function unionManagedStates(entries: ApplyHistoryEntry[]): ManagedState {
+  return {
+    mcpServers: unionStringLists(entries.map((entry) => entry.managed.mcpServers)),
+    materialized: unionStringLists(entries.map((entry) => entry.managed.materialized)),
+    permissionAllow: unionStringLists(entries.map((entry) => entry.managed.permissionAllow)),
+    permissionDeny: unionStringLists(entries.map((entry) => entry.managed.permissionDeny))
+  }
+}
+
 function toRolePermissions(value: unknown): RolePermissionsShape {
   if (typeof value !== 'object' || value === null) {
     return {}
@@ -103,7 +134,7 @@ function toRolePermissions(value: unknown): RolePermissionsShape {
 }
 
 export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId: number): ApplyPlan {
-  const previous = deps.history.lastSuccessful(project.id)?.managed ?? EMPTY_MANAGED_STATE
+  const previous = unionManagedStates(deps.history.listSinceLastSuccess(project.id))
 
   const settingsPath = path.join(project.path, '.claude', 'settings.json')
   const settingsBefore = readFileOrNull(settingsPath)

@@ -106,15 +106,28 @@ export const applyRoutes: FastifyPluginAsync<ApplyRouteDeps> = async (app, deps)
         return reply.status(500).send({ error: message, historyId: entry.id })
       }
 
-      const entry = deps.history.record({
-        projectId: project.id,
-        roleId,
-        diff,
-        managed: plan.managed,
-        status: 'success'
-      })
-      deps.projects.markApplied(project.id, roleId)
-      return { status: 'success', historyId: entry.id, plan }
+      try {
+        const entry = deps.history.record({
+          projectId: project.id,
+          roleId,
+          diff,
+          managed: plan.managed,
+          status: 'success'
+        })
+        deps.projects.markApplied(project.id, roleId)
+        return { status: 'success', historyId: entry.id, plan }
+      } catch (error) {
+        // The apply itself already succeeded on disk by this point; only
+        // recording it failed. There is no rollback, so disk and history
+        // have now diverged — say so plainly rather than returning a
+        // generic 500, and surface the underlying error since nothing else
+        // will.
+        const message = error instanceof Error ? error.message : String(error)
+        request.log.error(error, 'failed to record a successful apply')
+        return reply
+          .status(500)
+          .send({ error: `適用はファイルに書き込まれましたが、履歴の記録に失敗しました: ${message}` })
+      }
     }
   )
 
