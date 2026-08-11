@@ -5,11 +5,15 @@ export interface ManagedState {
   permissionDeny: string[]
 }
 
-export const EMPTY_MANAGED_STATE: ManagedState = {
-  mcpServers: [],
-  materialized: [],
-  permissionAllow: [],
-  permissionDeny: []
+export const EMPTY_MANAGED_STATE: ManagedState = Object.freeze({
+  mcpServers: Object.freeze([]) as string[],
+  materialized: Object.freeze([]) as string[],
+  permissionAllow: Object.freeze([]) as string[],
+  permissionDeny: Object.freeze([]) as string[]
+})
+
+function createEmptyManagedState(): ManagedState {
+  return { mcpServers: [], materialized: [], permissionAllow: [], permissionDeny: [] }
 }
 
 function readStringArray(value: unknown): string[] {
@@ -21,16 +25,16 @@ function readStringArray(value: unknown): string[] {
 
 export function parseManagedState(json: string | null | undefined): ManagedState {
   if (!json) {
-    return { ...EMPTY_MANAGED_STATE }
+    return createEmptyManagedState()
   }
   let parsed: unknown
   try {
     parsed = JSON.parse(json)
   } catch {
-    return { ...EMPTY_MANAGED_STATE }
+    return createEmptyManagedState()
   }
   if (typeof parsed !== 'object' || parsed === null) {
-    return { ...EMPTY_MANAGED_STATE }
+    return createEmptyManagedState()
   }
   const source = parsed as Record<string, unknown>
   return {

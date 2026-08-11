@@ -51,3 +51,18 @@ describe('staleEntries', () => {
     expect(staleEntries(['github'], ['github', 'memory'])).toEqual([])
   })
 })
+
+describe('EMPTY_MANAGED_STATE', () => {
+  it('does not share array instances with parsed empty states', () => {
+    const first = parseManagedState(null)
+    const second = parseManagedState(null)
+
+    expect(first.mcpServers).not.toBe(second.mcpServers)
+    expect(first.mcpServers).not.toBe(EMPTY_MANAGED_STATE.mcpServers)
+  })
+
+  it('is frozen against accidental mutation', () => {
+    expect(Object.isFrozen(EMPTY_MANAGED_STATE)).toBe(true)
+    expect(Object.isFrozen(EMPTY_MANAGED_STATE.mcpServers)).toBe(true)
+  })
+})
