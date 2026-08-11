@@ -242,4 +242,113 @@ describe('executeApplyPlan', () => {
     const written = JSON.parse(fs.readFileSync(path.join(projectPath, '.mcp.json'), 'utf-8'))
     expect(written.mcpServers.svc.env).toEqual({ PORT: 3000, DEBUG: true, NAME: 'x' })
   })
+
+  it('leaves settings.json mtime unchanged when applying an identical plan a second time', () => {
+    executeApplyPlan(planWith({}), deps)
+    const settingsPath = path.join(projectPath, '.claude', 'settings.json')
+    const mtimeAfterFirst = fs.statSync(settingsPath).mtimeMs
+
+    // A real second buildApplyPlan call would read the file it just wrote back as `before`.
+    const secondPlan = planWith({
+      settingsFile: { path: settingsPath, before: '{}\n', after: '{}\n' }
+    })
+    executeApplyPlan(secondPlan, deps)
+
+    expect(fs.statSync(settingsPath).mtimeMs).toBe(mtimeAfterFirst)
+  })
+
+  it('leaves .mcp.json mtime unchanged when the resolved bytes already match what is on disk', () => {
+    const key = deps.masterKeyProvider.getOrCreateKey()
+    deps.secrets.create({ refName: 'mcp:github:TOKEN', encryptedValue: encrypt('ghp_real_value', key) })
+    const mcpPath = path.join(projectPath, '.mcp.json')
+
+    executeApplyPlan(
+      planWith({
+        mcpAfterObject: {
+          mcpServers: { github: { command: 'npx', env: { TOKEN: 'secret_ref:mcp:github:TOKEN' } } }
+        }
+      }),
+      deps
+    )
+    const mtimeAfterFirst = fs.statSync(mcpPath).mtimeMs
+    const previouslyWritten = fs.readFileSync(mcpPath, 'utf-8')
+
+    const secondPlan = planWith({
+      mcpAfterObject: {
+        mcpServers: { github: { command: 'npx', env: { TOKEN: 'secret_ref:mcp:github:TOKEN' } } }
+      },
+      mcpFile: { path: mcpPath, before: previouslyWritten, after: 'secret_ref:mcp:github:TOKEN\n' }
+    })
+    executeApplyPlan(secondPlan, deps)
+
+    expect(fs.statSync(mcpPath).mtimeMs).toBe(mtimeAfterFirst)
+  })
+
+  it('rewrites .mcp.json when the stored secret has changed since the last apply', () => {
+    const key = deps.masterKeyProvider.getOrCreateKey()
+    const created = deps.secrets.create({
+      refName: 'mcp:github:TOKEN',
+      encryptedValue: encrypt('old_value', key)
+    })
+    const mcpPath = path.join(projectPath, '.mcp.json')
+
+    executeApplyPlan(
+      planWith({
+        mcpAfterObject: {
+          mcpServers: { github: { command: 'npx', env: { TOKEN: 'secret_ref:mcp:github:TOKEN' } } }
+        }
+      }),
+      deps
+    )
+    const previouslyWritten = fs.readFileSync(mcpPath, 'utf-8')
+    expect(previouslyWritten).toContain('old_value')
+
+    deps.secrets.update(created.id, { encryptedValue: encrypt('new_value', key) })
+
+    const secondPlan = planWith({
+      mcpAfterObject: {
+        mcpServers: { github: { command: 'npx', env: { TOKEN: 'secret_ref:mcp:github:TOKEN' } } }
+      },
+      mcpFile: { path: mcpPath, before: previouslyWritten, after: 'secret_ref:mcp:github:TOKEN\n' }
+    })
+    executeApplyPlan(secondPlan, deps)
+
+    const written = JSON.parse(fs.readFileSync(mcpPath, 'utf-8'))
+    expect(written.mcpServers.github.env.TOKEN).toBe('new_value')
+  })
+
+  it('leaves no temp file behind after a successful apply', () => {
+    executeApplyPlan(planWith({}), deps)
+
+    expect(fs.existsSync(path.join(projectPath, '.claude', 'settings.json.skillam-tmp'))).toBe(false)
+    expect(fs.existsSync(path.join(projectPath, '.mcp.json.skillam-tmp'))).toBe(false)
+  })
+
+  it('leaves earlier operations in place and never runs later ones after a mid-loop failure', () => {
+    const claudeDir = path.join(projectPath, '.claude')
+    fs.mkdirSync(claudeDir, { recursive: true })
+    // Make .claude/skills a regular file so a create-link under it fails when the loop
+    // tries to mkdir its parent directory.
+    fs.writeFileSync(path.join(claudeDir, 'skills'), 'not a directory')
+
+    const firstPath = path.join(claudeDir, 'agents', 'first.md')
+    const brokenLinkPath = path.join(claudeDir, 'skills', 'broken', 'link')
+    const thirdPath = path.join(claudeDir, 'agents', 'third.md')
+
+    expect(() =>
+      executeApplyPlan(
+        planWith({
+          operations: [
+            { type: 'write-file', path: firstPath, content: 'first' },
+            { type: 'create-link', path: brokenLinkPath, target: scratchRoot },
+            { type: 'write-file', path: thirdPath, content: 'third' }
+          ]
+        }),
+        deps
+      )
+    ).toThrow()
+
+    expect(fs.readFileSync(firstPath, 'utf-8')).toBe('first')
+    expect(fs.existsSync(thirdPath)).toBe(false)
+  })
 })

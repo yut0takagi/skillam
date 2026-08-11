@@ -201,6 +201,22 @@ describe('buildApplyPlan', () => {
     expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(MaterializeConflictError)
   })
 
+  it('refuses to plan a skill link whose target no longer exists on disk', () => {
+    const skillPath = path.join(scratchRoot, 'user-skills', 'deleted-skill')
+    new RoleSkillsRepository(db).replaceForRole(roleId, [{ skillSource: 'user', skillPath }])
+
+    expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(MaterializeConflictError)
+  })
+
+  it('refuses to plan a reference agent link whose target no longer exists on disk', () => {
+    const agentPath = path.join(scratchRoot, 'user-agents', 'deleted-agent.md')
+    new RoleAgentsRepository(db).replaceForRole(roleId, [
+      { name: 'reviewer', markdownBody: '', source: 'reference', sourcePath: agentPath }
+    ])
+
+    expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(MaterializeConflictError)
+  })
+
   it('refuses to plan two skills whose basenames collide on the same destination path', () => {
     const userSkillPath = path.join(scratchRoot, 'user-skills', 'review')
     const projectSkillPath = path.join(scratchRoot, 'project-skills', 'review')

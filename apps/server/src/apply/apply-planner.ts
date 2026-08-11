@@ -149,6 +149,11 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
         `適用先がプロジェクト外を指しています: ${entry.path}。skillam はプロジェクトディレクトリの外には書き込みません。`
       )
     }
+    if (entry.kind === 'link' && !fs.existsSync(entry.target)) {
+      throw new MaterializeConflictError(
+        `リンク先が存在しません: ${entry.target}（${entry.path} に配置予定）。ロールが参照している Skill / Agent が削除された可能性があります。`
+      )
+    }
   }
 
   const current: Record<string, CurrentEntry> = {}

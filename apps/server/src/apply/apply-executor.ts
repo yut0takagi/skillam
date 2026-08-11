@@ -63,14 +63,21 @@ export function resolveSecretRefs(
 
 function writeFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
-  fs.writeFileSync(filePath, content)
+  const tempPath = `${filePath}.skillam-tmp`
+  fs.writeFileSync(tempPath, content)
+  fs.renameSync(tempPath, filePath)
+}
+
+function writeFileIfChanged(filePath: string, content: string, before: string | null): void {
+  if (before === content) {
+    return
+  }
+  writeFile(filePath, content)
 }
 
 export function executeApplyPlan(plan: ApplyPlan, deps: ApplyExecutorDeps): void {
   const resolvedMcp = resolveSecretRefs(plan.mcpAfterObject, deps)
-
-  writeFile(plan.settingsFile.path, plan.settingsFile.after)
-  writeFile(plan.mcpFile.path, `${JSON.stringify(resolvedMcp, null, 2)}\n`)
+  const resolvedMcpContent = `${JSON.stringify(resolvedMcp, null, 2)}\n`
 
   for (const operation of plan.operations) {
     if (operation.type === 'remove') {
@@ -85,4 +92,7 @@ export function executeApplyPlan(plan: ApplyPlan, deps: ApplyExecutorDeps): void
     fs.rmSync(operation.path, { force: true, recursive: true })
     fs.symlinkSync(operation.target, operation.path)
   }
+
+  writeFileIfChanged(plan.settingsFile.path, plan.settingsFile.after, plan.settingsFile.before)
+  writeFileIfChanged(plan.mcpFile.path, resolvedMcpContent, plan.mcpFile.before)
 }
