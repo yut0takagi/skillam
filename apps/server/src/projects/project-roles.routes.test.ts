@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
 import { openDb } from '../db/client.js'
@@ -12,6 +12,7 @@ import { InMemoryKeychainClient } from '../secrets/in-memory-keychain-client.js'
 describe('project roles routes', () => {
   let db: Database.Database
   let app: FastifyInstance
+  let scratchRoot: string
   let projectId: number
   let roleId: number
 
@@ -20,16 +21,20 @@ describe('project roles routes', () => {
     runMigrations(db)
     app = buildApp(db, new InMemoryKeychainClient())
 
-    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-project-roles-route-test-'))
+    scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-project-roles-route-test-'))
     const project = await app.inject({
       method: 'POST',
       url: '/projects',
-      payload: { path: projectDir, name: 'p' }
+      payload: { path: scratchRoot, name: 'p' }
     })
     projectId = project.json().id
 
     const role = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'dev' } })
     roleId = role.json().id
+  })
+
+  afterEach(() => {
+    fs.rmSync(scratchRoot, { recursive: true, force: true })
   })
 
   it('returns an empty list before any role is assigned', async () => {
