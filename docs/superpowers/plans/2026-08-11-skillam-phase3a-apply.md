@@ -104,7 +104,7 @@ CREATE TABLE project_roles (
 CREATE TABLE apply_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL,
   diff_json TEXT NOT NULL DEFAULT '{}',
   managed_json TEXT NOT NULL DEFAULT '{}',
   status TEXT NOT NULL CHECK (status IN ('success', 'failed')),
@@ -112,7 +112,7 @@ CREATE TABLE apply_history (
   applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-ALTER TABLE projects ADD COLUMN last_applied_role_id INTEGER REFERENCES roles(id);
+ALTER TABLE projects ADD COLUMN last_applied_role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL;
 ALTER TABLE projects ADD COLUMN last_applied_at TEXT;
 
 ALTER TABLE role_agents ADD COLUMN source_path TEXT NOT NULL DEFAULT '';
@@ -1444,7 +1444,7 @@ export type ApplyStatus = 'success' | 'failed'
 export interface ApplyHistoryEntry {
   id: number
   projectId: number
-  roleId: number
+  roleId: number | null
   diff: unknown
   managed: ManagedState
   status: ApplyStatus
@@ -1474,7 +1474,7 @@ import type { ApplyHistoryEntry, ApplyStatus, RecordApplyInput } from './apply-h
 interface ApplyHistoryRow {
   id: number
   project_id: number
-  role_id: number
+  role_id: number | null
   diff_json: string
   managed_json: string
   status: string
