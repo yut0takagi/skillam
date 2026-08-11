@@ -8,6 +8,8 @@ interface ProjectRow {
   name: string
   auto_detected: number
   excluded: number
+  last_applied_role_id: number | null
+  last_applied_at: string | null
   created_at: string
   updated_at: string
 }
@@ -19,6 +21,8 @@ function toProject(row: ProjectRow): Project {
     name: row.name,
     autoDetected: row.auto_detected === 1,
     excluded: row.excluded === 1,
+    lastAppliedRoleId: row.last_applied_role_id,
+    lastAppliedAt: row.last_applied_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
@@ -79,6 +83,18 @@ export class ProjectsRepository {
         excluded: (input.excluded ?? existing.excluded) ? 1 : 0
       }) as ProjectRow
     return toProject(row)
+  }
+
+  markApplied(id: number, roleId: number): Project | undefined {
+    const row = this.db
+      .prepare(
+        `UPDATE projects
+         SET last_applied_role_id = @roleId, last_applied_at = datetime('now'), updated_at = datetime('now')
+         WHERE id = @id
+         RETURNING *`
+      )
+      .get({ id, roleId }) as ProjectRow | undefined
+    return row ? toProject(row) : undefined
   }
 
   delete(id: number): boolean {

@@ -4,6 +4,8 @@ export interface Project {
   name: string
   autoDetected: boolean
   excluded: boolean
+  lastAppliedRoleId: number | null
+  lastAppliedAt: string | null
   createdAt: string
   updatedAt: string
 }
