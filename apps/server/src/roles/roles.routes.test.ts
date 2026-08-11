@@ -346,7 +346,13 @@ describe('roles routes', () => {
 
     const getResponse = await app.inject({ method: 'GET', url: `/roles/${id}` })
     expect(getResponse.json().agents).toEqual([
-      { id: expect.any(Number), name: 'code-reviewer', markdownBody: '# Reviewer', source: 'authored' }
+      {
+        id: expect.any(Number),
+        name: 'code-reviewer',
+        markdownBody: '# Reviewer',
+        source: 'authored',
+        sourcePath: ''
+      }
     ])
   })
 
@@ -420,6 +426,20 @@ describe('roles routes', () => {
 
     expect(response.statusCode).toBe(400)
     expect(response.json()).not.toHaveProperty('code')
+  })
+
+  it('rejects a reference agent without a sourcePath', async () => {
+    const created = await app.inject({ method: 'POST', url: '/roles', payload: { name: 'needs-path' } })
+    const roleId = created.json().id
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/roles/${roleId}/agents`,
+      payload: { agents: [{ name: 'reviewer', markdownBody: '', source: 'reference' }] }
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toContain('sourcePath')
   })
 
   it('sets permissions via PUT /roles/:id/permissions and reflects them in GET /roles/:id', async () => {
