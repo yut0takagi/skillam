@@ -13,6 +13,7 @@ import { RolePermissionsRepository } from '../roles/role-permissions.repository.
 import { ProjectsRepository } from '../projects/projects.repository.js'
 import { ApplyHistoryRepository } from './apply-history.repository.js'
 import { UnsupportedSettingsError } from './plan-settings.js'
+import { MaterializeConflictError } from './plan-materialize.js'
 import { buildApplyPlan } from './apply-planner.js'
 import type { ApplyPlannerDeps } from './apply-planner.js'
 
@@ -175,5 +176,41 @@ describe('buildApplyPlan', () => {
 
     expect(plan.mcpFile.after).toBe(plan.mcpFile.before)
     expect(plan.operations).toEqual([])
+  })
+
+  it('refuses to overwrite a real directory that skillam never managed with a skill link', () => {
+    const skillDir = path.join(projectPath, '.claude', 'skills', 'drawio')
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'note.txt'), 'hand-written')
+
+    const skillPath = path.join(scratchRoot, 'user-skills', 'drawio')
+    fs.mkdirSync(skillPath, { recursive: true })
+    new RoleSkillsRepository(db).replaceForRole(roleId, [{ skillSource: 'user', skillPath }])
+
+    expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(MaterializeConflictError)
+
+    expect(fs.existsSync(skillDir)).toBe(true)
+    expect(fs.readFileSync(path.join(skillDir, 'note.txt'), 'utf-8')).toBe('hand-written')
+  })
+
+  it('refuses to plan an agent path that escapes the project directory', () => {
+    new RoleAgentsRepository(db).replaceForRole(roleId, [
+      { name: '../../../escaped', markdownBody: '# oops', source: 'authored' }
+    ])
+
+    expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(MaterializeConflictError)
+  })
+
+  it('refuses to plan two skills whose basenames collide on the same destination path', () => {
+    const userSkillPath = path.join(scratchRoot, 'user-skills', 'review')
+    const projectSkillPath = path.join(scratchRoot, 'project-skills', 'review')
+    fs.mkdirSync(userSkillPath, { recursive: true })
+    fs.mkdirSync(projectSkillPath, { recursive: true })
+    new RoleSkillsRepository(db).replaceForRole(roleId, [
+      { skillSource: 'user', skillPath: userSkillPath },
+      { skillSource: 'project-local', skillPath: projectSkillPath }
+    ])
+
+    expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(MaterializeConflictError)
   })
 })

@@ -11,6 +11,7 @@ import { planSettings, UnsupportedSettingsError, type RolePermissionsShape } fro
 import { planMcp } from './plan-mcp.js'
 import {
   planMaterialize,
+  MaterializeConflictError,
   type CurrentEntry,
   type DesiredEntry,
   type MaterializeOperation
@@ -87,7 +88,7 @@ function readCurrentEntry(projectPath: string, relativePath: string): CurrentEnt
   if (stats.isFile()) {
     return { kind: 'file', content: fs.readFileSync(absolutePath, 'utf-8') }
   }
-  return { kind: 'file', content: '' }
+  return { kind: 'other' }
 }
 
 function toRolePermissions(value: unknown): RolePermissionsShape {
@@ -138,6 +139,16 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
       continue
     }
     desired.push({ kind: 'file', path: `.claude/agents/${agent.name}.md`, content: agent.markdownBody })
+  }
+
+  const projectRoot = path.resolve(project.path)
+  for (const entry of desired) {
+    const resolved = path.resolve(projectRoot, entry.path)
+    if (resolved !== projectRoot && !resolved.startsWith(projectRoot + path.sep)) {
+      throw new MaterializeConflictError(
+        `適用先がプロジェクト外を指しています: ${entry.path}。skillam はプロジェクトディレクトリの外には書き込みません。`
+      )
+    }
   }
 
   const current: Record<string, CurrentEntry> = {}
