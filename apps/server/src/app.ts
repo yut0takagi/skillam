@@ -23,6 +23,7 @@ export interface CatalogRoots {
   userSkillsRoot?: string
   userAgentsRoot?: string
   pluginsCacheRoot?: string
+  claudeJsonPath?: string
 }
 
 export function buildApp(
@@ -35,6 +36,7 @@ export function buildApp(
   const userSkillsRoot = catalogRoots.userSkillsRoot ?? path.join(os.homedir(), '.claude', 'skills')
   const userAgentsRoot = catalogRoots.userAgentsRoot ?? path.join(os.homedir(), '.claude', 'agents')
   const pluginsCacheRoot = catalogRoots.pluginsCacheRoot ?? path.join(os.homedir(), '.claude', 'plugins', 'cache')
+  const claudeJsonPath = catalogRoots.claudeJsonPath ?? path.join(os.homedir(), '.claude.json')
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof KeychainAccessError) {
@@ -78,9 +80,12 @@ export function buildApp(
 
   app.register(catalogRoutes, {
     projects: new ProjectsRepository(db),
+    secrets: new SecretsRepository(db),
+    masterKeyProvider: new MasterKeyProvider(keychainClient),
     userSkillsRoot,
     userAgentsRoot,
-    pluginsCacheRoot
+    pluginsCacheRoot,
+    claudeJsonPath
   })
 
   return app
