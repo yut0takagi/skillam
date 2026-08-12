@@ -11,6 +11,8 @@ import { RolePermissionsRepository } from './roles/role-permissions.repository.j
 import { AutoDetectRootsRepository } from './projects/auto-detect-roots.repository.js'
 import { ProjectsRepository } from './projects/projects.repository.js'
 import { projectsRoutes } from './projects/projects.routes.js'
+import { ProjectRolesRepository } from './projects/project-roles.repository.js'
+import { projectRolesRoutes } from './projects/project-roles.routes.js'
 import type { KeychainClient } from './secrets/keychain-client.js'
 import { KeychainAccessError } from './secrets/keychain-client.js'
 import { MacKeychainClient } from './secrets/mac-keychain-client.js'
@@ -18,6 +20,8 @@ import { MasterKeyProvider } from './secrets/master-key-provider.js'
 import { SecretsRepository } from './secrets/secrets.repository.js'
 import { secretsRoutes } from './secrets/secrets.routes.js'
 import { catalogRoutes } from './catalog/catalog.routes.js'
+import { ApplyHistoryRepository } from './apply/apply-history.repository.js'
+import { applyRoutes } from './apply/apply.routes.js'
 
 export interface CatalogRoots {
   userSkillsRoot?: string
@@ -73,6 +77,12 @@ export function buildApp(
     projects: new ProjectsRepository(db)
   })
 
+  app.register(projectRolesRoutes, {
+    projects: new ProjectsRepository(db),
+    projectRoles: new ProjectRolesRepository(db),
+    roles: new RolesRepository(db)
+  })
+
   app.register(secretsRoutes, {
     secrets: new SecretsRepository(db),
     masterKeyProvider: new MasterKeyProvider(keychainClient)
@@ -86,6 +96,18 @@ export function buildApp(
     userAgentsRoot,
     pluginsCacheRoot,
     claudeJsonPath
+  })
+
+  app.register(applyRoutes, {
+    projects: new ProjectsRepository(db),
+    roles: new RolesRepository(db),
+    skills: new RoleSkillsRepository(db),
+    agents: new RoleAgentsRepository(db),
+    mcpServers: new RoleMcpServersRepository(db),
+    permissions: new RolePermissionsRepository(db),
+    history: new ApplyHistoryRepository(db),
+    secrets: new SecretsRepository(db),
+    masterKeyProvider: new MasterKeyProvider(keychainClient)
   })
 
   return app

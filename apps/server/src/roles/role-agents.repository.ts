@@ -6,6 +6,7 @@ interface RoleAgentRow {
   name: string
   markdown_body: string
   source: string
+  source_path: string
 }
 
 function toRoleAgent(row: RoleAgentRow): RoleAgent {
@@ -13,7 +14,8 @@ function toRoleAgent(row: RoleAgentRow): RoleAgent {
     id: row.id,
     name: row.name,
     markdownBody: row.markdown_body,
-    source: row.source as RoleAgent['source']
+    source: row.source as RoleAgent['source'],
+    sourcePath: row.source_path
   }
 }
 
@@ -22,7 +24,9 @@ export class RoleAgentsRepository {
 
   listForRole(roleId: number): RoleAgent[] {
     const rows = this.db
-      .prepare('SELECT id, name, markdown_body, source FROM role_agents WHERE role_id = ? ORDER BY id')
+      .prepare(
+        'SELECT id, name, markdown_body, source, source_path FROM role_agents WHERE role_id = ? ORDER BY id'
+      )
       .all(roleId) as RoleAgentRow[]
     return rows.map(toRoleAgent)
   }
@@ -31,10 +35,16 @@ export class RoleAgentsRepository {
     const replace = this.db.transaction((entries: RoleAgentInput[]) => {
       this.db.prepare('DELETE FROM role_agents WHERE role_id = ?').run(roleId)
       const insert = this.db.prepare(
-        'INSERT INTO role_agents (role_id, name, markdown_body, source) VALUES (?, ?, ?, ?)'
+        'INSERT INTO role_agents (role_id, name, markdown_body, source, source_path) VALUES (?, ?, ?, ?, ?)'
       )
       for (const entry of entries) {
-        insert.run(roleId, entry.name, entry.markdownBody, entry.source)
+        insert.run(
+          roleId,
+          entry.name,
+          entry.markdownBody,
+          entry.source,
+          entry.source === 'reference' ? (entry.sourcePath ?? '') : ''
+        )
       }
     })
     replace(items)

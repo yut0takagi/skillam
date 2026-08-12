@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type Database from 'better-sqlite3'
 import { openDb } from '../db/client.js'
 import { runMigrations } from '../db/migrate.js'
+import { RolesRepository } from '../roles/roles.repository.js'
 import { ProjectsRepository } from './projects.repository.js'
 
 describe('ProjectsRepository', () => {
@@ -92,5 +93,20 @@ describe('ProjectsRepository', () => {
 
     expect(repo.delete(created.id)).toBe(true)
     expect(repo.getById(created.id)).toBeUndefined()
+  })
+
+  it('records the last applied role', () => {
+    const repo = new ProjectsRepository(db)
+    const project = repo.create({ path: '/tmp/marked', name: 'marked' })
+    const roleId = new RolesRepository(db).create({ name: 'applied-role' }).id
+
+    const updated = repo.markApplied(project.id, roleId)
+
+    expect(updated?.lastAppliedRoleId).toBe(roleId)
+    expect(updated?.lastAppliedAt).toEqual(expect.any(String))
+  })
+
+  it('returns undefined when marking an unknown project as applied', () => {
+    expect(new ProjectsRepository(db).markApplied(9999, 1)).toBeUndefined()
   })
 })

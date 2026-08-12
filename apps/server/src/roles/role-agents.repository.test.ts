@@ -31,8 +31,53 @@ describe('RoleAgentsRepository', () => {
         id: expect.any(Number),
         name: 'code-reviewer',
         markdownBody: '# Code Reviewer\n...',
-        source: 'reference'
+        source: 'reference',
+        sourcePath: ''
       }
     ])
+  })
+
+  it('round-trips sourcePath for a reference agent', () => {
+    const role = new RolesRepository(db).create({ name: 'linked' })
+    const repo = new RoleAgentsRepository(db)
+
+    const saved = repo.replaceForRole(role.id, [
+      {
+        name: 'reviewer',
+        markdownBody: '',
+        source: 'reference',
+        sourcePath: '/Users/someone/.claude/agents/reviewer.md'
+      }
+    ])
+
+    expect(saved).toEqual([
+      expect.objectContaining({
+        name: 'reviewer',
+        source: 'reference',
+        sourcePath: '/Users/someone/.claude/agents/reviewer.md'
+      })
+    ])
+  })
+
+  it('defaults sourcePath to an empty string when omitted', () => {
+    const role = new RolesRepository(db).create({ name: 'authored-only' })
+    const repo = new RoleAgentsRepository(db)
+
+    const saved = repo.replaceForRole(role.id, [
+      { name: 'writer', markdownBody: '# Writer', source: 'authored' }
+    ])
+
+    expect(saved[0].sourcePath).toBe('')
+  })
+
+  it('drops sourcePath for an authored agent', () => {
+    const role = new RolesRepository(db).create({ name: 'authored-with-stray-path' })
+    const repo = new RoleAgentsRepository(db)
+
+    const saved = repo.replaceForRole(role.id, [
+      { name: 'writer', markdownBody: '# Writer', source: 'authored', sourcePath: '/etc/passwd' }
+    ])
+
+    expect(saved[0].sourcePath).toBe('')
   })
 })

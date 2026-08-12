@@ -173,6 +173,16 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
           .status(400)
           .send({ error: 'each agent must have a string name, markdownBody, and source' })
       }
+      const hasInvalidSourcePath = request.body.agents.some(
+        (agent) =>
+          (agent.sourcePath !== undefined && typeof agent.sourcePath !== 'string') ||
+          (agent.source === 'reference' && (agent.sourcePath ?? '').trim() === '')
+      )
+      if (hasInvalidSourcePath) {
+        return reply
+          .status(400)
+          .send({ error: 'an agent with source "reference" requires a non-empty sourcePath' })
+      }
       const id = Number(request.params.id)
       if (!deps.roles.getById(id)) {
         return reply.status(404).send({ error: 'role not found' })
