@@ -257,29 +257,138 @@ describe('ProjectDetail', () => {
     await waitFor(() => expect(screen.getByText('適用履歴はまだありません。')).toBeDefined())
   })
 
-  it('assigning a role calls PUT /projects/:id/roles', async () => {
+  it('renders a checkbox per role, with the assigned ones checked', async () => {
+    stubFetch(
+      baseHandler({
+        roles: [role, { ...role, id: 2, name: 'frontend-dev' }, { ...role, id: 3, name: 'minimal' }]
+      })
+    )
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    const backendCheckbox = (await screen.findByLabelText('backend-dev')) as HTMLInputElement
+    const frontendCheckbox = (await screen.findByLabelText('frontend-dev')) as HTMLInputElement
+    const minimalCheckbox = (await screen.findByLabelText('minimal')) as HTMLInputElement
+
+    expect(backendCheckbox.checked).toBe(true)
+    expect(frontendCheckbox.checked).toBe(false)
+    expect(minimalCheckbox.checked).toBe(false)
+  })
+
+  it('saving sends ALL checked ids in visible order', async () => {
     let putCalled = false
     let putBody: unknown = null
     stubFetch((url, init) => {
       if (url.includes('/projects/1/roles') && init?.method === 'PUT') {
         putCalled = true
         putBody = init.body ? JSON.parse(String(init.body)) : null
-        return { status: 200, body: [{ roleId: 7, priority: 0 }] }
+        return { status: 200, body: [{ roleId: 7, priority: 0 }, { roleId: 2, priority: 1 }, { roleId: 3, priority: 2 }] }
+      }
+      return baseHandler({
+        roles: [role, { ...role, id: 2, name: 'frontend-dev' }, { ...role, id: 3, name: 'minimal' }]
+      })(url, init)
+    })
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    const frontendCheckbox = await screen.findByLabelText('frontend-dev')
+    const minimalCheckbox = await screen.findByLabelText('minimal')
+    frontendCheckbox.click()
+    minimalCheckbox.click()
+
+    const saveButton = screen.getByRole('button', { name: '保存' })
+    saveButton.click()
+
+    await waitFor(() => expect(putCalled).toBe(true))
+    expect(putBody).toEqual({ roleIds: [7, 2, 3] })
+  })
+
+  it('shows the server message when saving assignment fails (unknown role id)', async () => {
+    stubFetch((url, init) => {
+      if (url.includes('/projects/1/roles') && init?.method === 'PUT') {
+        return { status: 400, body: { error: '不明なロールIDです' } }
       }
       return baseHandler()(url, init)
     })
     renderDetail()
 
     await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
-    const select = await screen.findByLabelText('ロール割り当て')
-    ;(select as HTMLSelectElement).value = '7'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-
     const saveButton = screen.getByRole('button', { name: '保存' })
     saveButton.click()
 
-    await waitFor(() => expect(putCalled).toBe(true))
-    expect(putBody).toEqual({ roleIds: [7] })
+    await waitFor(() => expect(screen.getByText('不明なロールIDです')).toBeDefined())
+  })
+
+  it('with two assigned roles, an 適用するロール selector appears, defaulting to the highest priority one', async () => {
+    stubFetch((url, init) => {
+      if (url.includes('/projects/1/roles') && (!init || init.method === undefined || init.method === 'GET')) {
+        return { status: 200, body: [{ roleId: 2, priority: 0 }, { roleId: 7, priority: 1 }] }
+      }
+      return baseHandler({
+        roles: [role, { ...role, id: 2, name: 'frontend-dev' }]
+      })(url, init)
+    })
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    const selector = (await screen.findByLabelText('適用するロール')) as HTMLSelectElement
+    expect(selector).toBeDefined()
+    expect(selector.value).toBe('2')
+  })
+
+  it('with exactly one assigned role, no 適用するロール selector appears', async () => {
+    stubFetch(baseHandler())
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    await screen.findByRole('button', { name: 'プレビュー' })
+    expect(screen.queryByLabelText('適用するロール')).toBeNull()
+  })
+
+  it('preview uses the role chosen in the 適用するロール selector', async () => {
+    let previewRoleId: number | null = null
+    stubFetch((url, init) => {
+      if (url.includes('/apply/preview')) {
+        previewRoleId = init?.body ? JSON.parse(String(init.body)).roleId : null
+        return { status: 200, body: plan }
+      }
+      if (url.includes('/projects/1/roles') && (!init || init.method === undefined || init.method === 'GET')) {
+        return { status: 200, body: [{ roleId: 2, priority: 0 }, { roleId: 7, priority: 1 }] }
+      }
+      return baseHandler({
+        roles: [role, { ...role, id: 2, name: 'frontend-dev' }]
+      })(url, init)
+    })
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    const selector = (await screen.findByLabelText('適用するロール')) as HTMLSelectElement
+    selector.value = '7'
+    selector.dispatchEvent(new Event('change', { bubbles: true }))
+
+    const previewButton = await screen.findByRole('button', { name: 'プレビュー' })
+    previewButton.click()
+
+    await waitFor(() => expect(previewRoleId).toBe(7))
+  })
+
+  it('shows the multi-role hint when two or more roles are assigned', async () => {
+    stubFetch((url, init) => {
+      if (url.includes('/projects/1/roles') && (!init || init.method === undefined || init.method === 'GET')) {
+        return { status: 200, body: [{ roleId: 2, priority: 0 }, { roleId: 7, priority: 1 }] }
+      }
+      return baseHandler({
+        roles: [role, { ...role, id: 2, name: 'frontend-dev' }]
+      })(url, init)
+    })
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    await waitFor(() =>
+      expect(
+        screen.getByText('適用は1ロールずつです。複数ロールの合成は未対応のため、適用するロールを選んでください。')
+      ).toBeDefined()
+    )
   })
 
   it('disables プレビュー and shows a hint when no role is assigned', async () => {

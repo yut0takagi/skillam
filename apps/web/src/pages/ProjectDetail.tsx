@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   applyRole,
@@ -63,9 +63,11 @@ export function ProjectDetail() {
   const projectRolesApi = useApi(useCallback(() => listProjectRoles(projectId), [projectId]))
   const historyApi = useApi(useCallback(() => listApplyHistory(projectId), [projectId]))
 
-  const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null)
+  const [checkedRoleIds, setCheckedRoleIds] = useState<number[]>([])
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  const [applyRoleId, setApplyRoleId] = useState<number | null>(null)
 
   const [plan, setPlan] = useState<ApplyPlan | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -91,8 +93,25 @@ export function ProjectDetail() {
     return map
   }, [roles])
 
-  const assignedRoleId = projectRolesApi.data && projectRolesApi.data.length > 0 ? projectRolesApi.data[0].roleId : null
-  const effectiveRoleId = selectedRoleId ?? assignedRoleId
+  const assignedRoles = useMemo(() => {
+    const entries = projectRolesApi.data ?? []
+    return [...entries].sort((a, b) => a.priority - b.priority)
+  }, [projectRolesApi.data])
+
+  const assignedRoleIds = useMemo(() => assignedRoles.map((entry) => entry.roleId), [assignedRoles])
+
+  useEffect(() => {
+    setCheckedRoleIds(assignedRoleIds)
+  }, [assignedRoleIds])
+
+  const effectiveRoleId =
+    assignedRoleIds.length === 0
+      ? null
+      : assignedRoleIds.length === 1
+        ? assignedRoleIds[0]
+        : applyRoleId !== null && assignedRoleIds.includes(applyRoleId)
+          ? applyRoleId
+          : assignedRoleIds[0]
 
   const latestSuccessManaged = useMemo(() => {
     const success = history.find((entry) => entry.status === 'success')
@@ -143,20 +162,23 @@ export function ProjectDetail() {
     projectApi.reload()
   }, [projectId, effectiveRoleId, historyApi, projectApi])
 
+  const handleToggleRole = useCallback((roleId: number) => {
+    setCheckedRoleIds((current) =>
+      current.includes(roleId) ? current.filter((id) => id !== roleId) : [...current, roleId]
+    )
+  }, [])
+
   const handleSaveRole = useCallback(async () => {
-    if (effectiveRoleId === null) {
-      return
-    }
     setSaving(true)
     setSaveError(null)
-    const result = await setProjectRoles(projectId, [effectiveRoleId])
+    const result = await setProjectRoles(projectId, checkedRoleIds)
     setSaving(false)
     if (!result.ok) {
       setSaveError(result.message)
       return
     }
     projectRolesApi.reload()
-  }, [projectId, effectiveRoleId, projectRolesApi])
+  }, [projectId, checkedRoleIds, projectRolesApi])
 
   if (projectApi.loading && !project) {
     return (
@@ -195,6 +217,30 @@ export function ProjectDetail() {
         <p className="page-note">
           <code>{project.path}</code>
         </p>
+        {assignedRoleIds.length >= 2 ? (
+          <div className="field" style={{ marginTop: 'var(--s3, 12px)' }}>
+            <label htmlFor="apply-role-select">適用するロール</label>
+            <select
+              id="apply-role-select"
+              aria-label="適用するロール"
+              value={effectiveRoleId ?? ''}
+              onChange={(event) => setApplyRoleId(Number(event.target.value))}
+            >
+              {assignedRoleIds.map((roleId) => (
+                <option key={roleId} value={roleId}>
+                  {roleNameById.get(roleId) ?? `ロール #${roleId}`}
+                </option>
+              ))}
+            </select>
+            <p className="hint">
+              適用は1ロールずつです。複数ロールの合成は未対応のため、適用するロールを選んでください。
+            </p>
+          </div>
+        ) : assignedRoleIds.length === 1 ? (
+          <p className="hint" style={{ marginTop: 'var(--s3, 12px)' }}>
+            適用対象: {roleNameById.get(assignedRoleIds[0]) ?? `ロール #${assignedRoleIds[0]}`}
+          </p>
+        ) : null}
         <div className="row" style={{ marginTop: 'var(--s3, 12px)' }}>
           <button type="button" className="btn" onClick={handlePreview} disabled={previewButtonDisabled}>
             プレビュー
@@ -320,26 +366,23 @@ export function ProjectDetail() {
           <div className="panel">
             <div className="panel-head">割り当て</div>
             <div className="panel-body">
-              <div className="field">
-                <label htmlFor="role-select">ロール割り当て</label>
-                <select
-                  id="role-select"
-                  aria-label="ロール割り当て"
-                  value={effectiveRoleId ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    setSelectedRoleId(value === '' ? null : Number(value))
-                  }}
-                >
-                  <option value="">未割り当て</option>
-                  {roles.map((role: Role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.name}
-                    </option>
-                  ))}
-                </select>
+              <div className="checklist">
+                {roles.map((role: Role) => (
+                  <label className="check" key={role.id}>
+                    <input
+                      type="checkbox"
+                      checked={checkedRoleIds.includes(role.id)}
+                      onChange={() => handleToggleRole(role.id)}
+                      aria-label={role.name}
+                    />
+                    <span className="check-main">
+                      <span className="check-name">{role.name}</span>
+                      {role.description ? <span className="check-desc">{role.description}</span> : null}
+                    </span>
+                  </label>
+                ))}
               </div>
-              <button type="button" className="btn" onClick={handleSaveRole} disabled={saving || effectiveRoleId === null}>
+              <button type="button" className="btn" onClick={handleSaveRole} disabled={saving}>
                 保存
               </button>
               {saveError ? <p className="hint">{saveError}</p> : null}
