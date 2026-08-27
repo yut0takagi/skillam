@@ -141,3 +141,34 @@ export interface ApplySuccess {
   historyId: number
   plan: ApplyPlan
 }
+
+export type DriftKind =
+  | 'permission-missing'
+  | 'mcp-server-missing'
+  | 'materialized-missing'
+  | 'materialized-changed'
+  | 'config-unreadable'
+
+export interface DriftItem {
+  kind: DriftKind
+  target: string
+  detail: string
+}
+
+export interface DriftReport {
+  projectId: number
+  projectPath: string
+  hasDrift: boolean
+  items: DriftItem[]
+  lastAppliedAt: string | null
+}
+
+export interface RoleExportPayload {
+  skillamRoleVersion: number
+  name: string
+  description: string
+  skills: Array<{ skillSource: string; skillPath: string }>
+  mcpServers: Array<{ name: string; command: unknown; env: Record<string, string> }>
+  agents: Array<{ name: string; markdownBody: string; source: string; sourcePath?: string }>
+  permissions: unknown
+}

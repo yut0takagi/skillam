@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Dashboard } from './Dashboard.js'
-import type { Project, ScanCandidate, Role } from '../api/types.js'
+import type { Project, ScanCandidate, Role, DriftReport } from '../api/types.js'
 
 function stubFetch(handler: (url: string, init?: RequestInit) => { status: number; body: unknown }) {
   vi.stubGlobal(
@@ -49,6 +49,9 @@ const role: Role = {
 
 function defaultHandler(url: string) {
   if (url.includes('/projects/scan')) {
+    return { status: 200, body: [] }
+  }
+  if (url.includes('/drift')) {
     return { status: 200, body: [] }
   }
   if (url.includes('/projects')) {
@@ -214,6 +217,121 @@ describe('Dashboard', () => {
 
     await waitFor(() => expect(screen.getByText('project-25')).toBeDefined())
     expect(screen.queryByText('project-0')).toBeNull()
+  })
+
+  it('shows a drift badge with its count for a project with drift', async () => {
+    const driftReport: DriftReport = {
+      projectId: project.id,
+      projectPath: project.path,
+      hasDrift: true,
+      items: [
+        { kind: 'permission-missing', target: 'Bash(git *)', detail: 'missing' },
+        { kind: 'mcp-server-missing', target: 'github', detail: 'missing' },
+        { kind: 'materialized-missing', target: '/foo', detail: 'missing' }
+      ],
+      lastAppliedAt: '2026-08-01T00:00:00.000Z'
+    }
+    stubFetch((url) => {
+      if (url.includes('/projects/scan')) {
+        return { status: 200, body: [] }
+      }
+      if (url.includes('/drift')) {
+        return { status: 200, body: [driftReport] }
+      }
+      if (url.includes('/roles')) {
+        return { status: 200, body: [role] }
+      }
+      if (url.includes('/projects')) {
+        return { status: 200, body: [project] }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderDashboard()
+
+    await waitFor(() => expect(screen.getByText('3件のズレ')).toBeDefined())
+  })
+
+  it('shows no drift badge for a clean project', async () => {
+    const driftReport: DriftReport = {
+      projectId: project.id,
+      projectPath: project.path,
+      hasDrift: false,
+      items: [],
+      lastAppliedAt: '2026-08-01T00:00:00.000Z'
+    }
+    stubFetch((url) => {
+      if (url.includes('/projects/scan')) {
+        return { status: 200, body: [] }
+      }
+      if (url.includes('/drift')) {
+        return { status: 200, body: [driftReport] }
+      }
+      if (url.includes('/roles')) {
+        return { status: 200, body: [role] }
+      }
+      if (url.includes('/projects')) {
+        return { status: 200, body: [project] }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderDashboard()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    expect(screen.queryByText(/件のズレ/)).toBeNull()
+  })
+
+  it('shows no drift badge for a never-applied project (not "unknown")', async () => {
+    const neverApplied: Project = { ...project, lastAppliedRoleId: null, lastAppliedAt: null }
+    const driftReport: DriftReport = {
+      projectId: neverApplied.id,
+      projectPath: neverApplied.path,
+      hasDrift: false,
+      items: [],
+      lastAppliedAt: null
+    }
+    stubFetch((url) => {
+      if (url.includes('/projects/scan')) {
+        return { status: 200, body: [] }
+      }
+      if (url.includes('/drift')) {
+        return { status: 200, body: [driftReport] }
+      }
+      if (url.includes('/roles')) {
+        return { status: 200, body: [role] }
+      }
+      if (url.includes('/projects')) {
+        return { status: 200, body: [neverApplied] }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderDashboard()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    expect(screen.queryByText(/件のズレ/)).toBeNull()
+    expect(screen.queryByText('unknown')).toBeNull()
+  })
+
+  it('a failed /drift request does not break the project list', async () => {
+    stubFetch((url) => {
+      if (url.includes('/projects/scan')) {
+        return { status: 200, body: [] }
+      }
+      if (url.includes('/drift')) {
+        return { status: 500, body: { error: 'drift check failed' } }
+      }
+      if (url.includes('/roles')) {
+        return { status: 200, body: [role] }
+      }
+      if (url.includes('/projects')) {
+        return { status: 200, body: [project] }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderDashboard()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    expect(screen.getByText('/Users/dev/skillam')).toBeDefined()
+    expect(screen.queryByText(/件のズレ/)).toBeNull()
   })
 
   it('shows the message when registering fails', async () => {

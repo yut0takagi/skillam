@@ -5,7 +5,8 @@ import type {
   ScanCandidate,
   ApplyHistoryEntry,
   ApplyPlan,
-  ApplySuccess
+  ApplySuccess,
+  DriftReport
 } from './types.js'
 
 export const listProjects = () => apiRequest<Project[]>('/projects')
@@ -42,3 +43,7 @@ export const applyRole = (id: number, roleId: number) =>
 
 export const listApplyHistory = (id: number) =>
   apiRequest<ApplyHistoryEntry[]>(`/projects/${id}/apply-history`)
+
+export const listDrift = () => apiRequest<DriftReport[]>('/drift')
+
+export const getProjectDrift = (id: number) => apiRequest<DriftReport>(`/projects/${id}/drift`)

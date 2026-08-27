@@ -139,6 +139,165 @@ describe('Roles', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('exporting a role calls GET /roles/:id/export and triggers a download', async () => {
+    let exportCalled = false
+    const exportPayload = {
+      skillamRoleVersion: 1,
+      name: 'backend-dev',
+      description: 'バックエンド開発用ロール',
+      skills: [],
+      mcpServers: [],
+      agents: [],
+      permissions: null
+    }
+    stubFetch((url) => {
+      if (url.endsWith('/roles/1/export')) {
+        exportCalled = true
+        return { status: 200, body: exportPayload }
+      }
+      if (url.endsWith('/roles')) {
+        return { status: 200, body: [role] }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+
+    const createObjectURL = vi.fn(() => 'blob:mock-url')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    renderRoles()
+
+    await waitFor(() => expect(screen.getByText('backend-dev')).toBeDefined())
+    const userEvent = (await import('@testing-library/user-event')).default
+    const row = screen.getByText('backend-dev').closest('tr') as HTMLElement
+    await userEvent.click(within(row).getByRole('button', { name: 'エクスポート' }))
+
+    await waitFor(() => expect(exportCalled).toBe(true))
+    expect(createObjectURL).toHaveBeenCalled()
+    expect(clickSpy).toHaveBeenCalled()
+
+    clickSpy.mockRestore()
+  })
+
+  it('importing a role posts the parsed JSON payload to /roles/import', async () => {
+    let importedBody: unknown = null
+    const importPayload = {
+      skillamRoleVersion: 1,
+      name: 'imported-role',
+      description: '',
+      skills: [],
+      mcpServers: [],
+      agents: [],
+      permissions: null
+    }
+    stubFetch((url, init) => {
+      if (url.endsWith('/roles/import') && init?.method === 'POST') {
+        importedBody = init.body ? JSON.parse(String(init.body)) : null
+        return {
+          status: 201,
+          body: {
+            id: 2,
+            name: 'imported-role',
+            description: '',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            skills: [],
+            mcpServers: [],
+            agents: [],
+            permissions: null
+          }
+        }
+      }
+      if (url.endsWith('/roles')) {
+        return { status: 200, body: [role] }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderRoles()
+
+    await waitFor(() => expect(screen.getByText('backend-dev')).toBeDefined())
+    const userEvent = (await import('@testing-library/user-event')).default
+    await userEvent.click(screen.getByRole('button', { name: 'インポート' }))
+
+    const file = new File([JSON.stringify(importPayload)], 'imported-role.skillam-role.json', {
+      type: 'application/json'
+    })
+    const input = screen.getByLabelText('ロールファイルを選択') as HTMLInputElement
+    await userEvent.upload(input, file)
+
+    await waitFor(() => expect(importedBody).toEqual(importPayload))
+  })
+
+  it('shows the server message when import returns 409', async () => {
+    stubFetch((url, init) => {
+      if (url.endsWith('/roles/import') && init?.method === 'POST') {
+        return { status: 409, body: { error: 'この名前のロールは既に存在します' } }
+      }
+      if (url.endsWith('/roles')) {
+        return { status: 200, body: [role] }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderRoles()
+
+    await waitFor(() => expect(screen.getByText('backend-dev')).toBeDefined())
+    const userEvent = (await import('@testing-library/user-event')).default
+    await userEvent.click(screen.getByRole('button', { name: 'インポート' }))
+
+    const file = new File(
+      [JSON.stringify({ skillamRoleVersion: 1, name: 'backend-dev' })],
+      'backend-dev.skillam-role.json',
+      { type: 'application/json' }
+    )
+    const input = screen.getByLabelText('ロールファイルを選択') as HTMLInputElement
+    await userEvent.upload(input, file)
+
+    await waitFor(() => expect(screen.getByText('この名前のロールは既に存在します')).toBeDefined())
+  })
+
+  it('shows the absolute-path caveat after a successful import', async () => {
+    stubFetch((url, init) => {
+      if (url.endsWith('/roles/import') && init?.method === 'POST') {
+        return {
+          status: 201,
+          body: {
+            id: 2,
+            name: 'imported-role',
+            description: '',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            skills: [],
+            mcpServers: [],
+            agents: [],
+            permissions: null
+          }
+        }
+      }
+      if (url.endsWith('/roles')) {
+        return { status: 200, body: [role] }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderRoles()
+
+    await waitFor(() => expect(screen.getByText('backend-dev')).toBeDefined())
+    const userEvent = (await import('@testing-library/user-event')).default
+    await userEvent.click(screen.getByRole('button', { name: 'インポート' }))
+
+    const file = new File(
+      [JSON.stringify({ skillamRoleVersion: 1, name: 'imported-role' })],
+      'imported-role.skillam-role.json',
+      { type: 'application/json' }
+    )
+    const input = screen.getByLabelText('ロールファイルを選択') as HTMLInputElement
+    await userEvent.upload(input, file)
+
+    await waitFor(() =>
+      expect(screen.getByText(/絶対パスのため.*適用時に失敗します/)).toBeDefined()
+    )
+  })
+
   it('deletes after confirming', async () => {
     let deleteCalled = false
     let deleted = false

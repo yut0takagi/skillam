@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectDetail } from './ProjectDetail.js'
-import type { ApplyHistoryEntry, ApplyPlan, Project, Role } from '../api/types.js'
+import type { ApplyHistoryEntry, ApplyPlan, DriftReport, Project, Role } from '../api/types.js'
 
 function stubFetch(handler: (url: string, init?: RequestInit) => { status: number; body: unknown }) {
   vi.stubGlobal(
@@ -87,16 +87,32 @@ const historyEntry: ApplyHistoryEntry = {
   appliedAt: '2026-08-01T00:00:00.000Z'
 }
 
+const cleanDrift: DriftReport = {
+  projectId: 1,
+  projectPath: '/Users/dev/skillam',
+  hasDrift: false,
+  items: [],
+  lastAppliedAt: '2026-08-01T00:00:00.000Z'
+}
+
 function baseHandler(overrides: {
   history?: ApplyHistoryEntry[]
   roles?: Role[]
   project?: Project
+  drift?: DriftReport | { status: number; body: unknown }
 } = {}) {
   const history = overrides.history ?? [historyEntry]
   const roles = overrides.roles ?? [role]
   const proj = overrides.project ?? project
+  const drift = overrides.drift ?? cleanDrift
 
   return (url: string, init?: RequestInit) => {
+    if (url.includes('/projects/1/drift')) {
+      if (drift && typeof drift === 'object' && 'status' in drift) {
+        return drift
+      }
+      return { status: 200, body: drift }
+    }
     if (url.includes('/apply-history')) {
       return { status: 200, body: history }
     }
@@ -389,6 +405,39 @@ describe('ProjectDetail', () => {
         screen.getByText('適用は1ロールずつです。複数ロールの合成は未対応のため、適用するロールを選んでください。')
       ).toBeDefined()
     )
+  })
+
+  it('renders drift items with kind, target, and detail', async () => {
+    const driftReport: DriftReport = {
+      projectId: 1,
+      projectPath: '/Users/dev/skillam',
+      hasDrift: true,
+      items: [
+        { kind: 'permission-missing', target: 'Bash(git *)', detail: '権限が見つかりません' },
+        { kind: 'mcp-server-missing', target: 'github', detail: 'MCPサーバーが見つかりません' }
+      ],
+      lastAppliedAt: '2026-08-01T00:00:00.000Z'
+    }
+    stubFetch(baseHandler({ drift: driftReport }))
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('Bash(git *)')).toBeDefined())
+    expect(screen.getByText('権限が見つかりません')).toBeDefined()
+    const driftRows = screen.getAllByTestId('drift-row')
+    expect(driftRows).toHaveLength(2)
+    expect(within(driftRows[1]).getByText('github')).toBeDefined()
+    expect(screen.getByText('MCPサーバーが見つかりません')).toBeDefined()
+  })
+
+  it('shows the server 409 message instead of a generic error when drift config is unparsable', async () => {
+    stubFetch(
+      baseHandler({
+        drift: { status: 409, body: { error: '.claude/settings.json が壊れています' } }
+      })
+    )
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('.claude/settings.json が壊れています')).toBeDefined())
   })
 
   it('disables プレビュー and shows a hint when no role is assigned', async () => {
