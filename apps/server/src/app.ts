@@ -1,6 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import Fastify, { FastifyInstance } from 'fastify'
+import cors from '@fastify/cors'
 import type Database from 'better-sqlite3'
 import { RolesRepository } from './roles/roles.repository.js'
 import { rolesRoutes } from './roles/roles.routes.js'
@@ -41,6 +42,13 @@ export function buildApp(
   const userAgentsRoot = catalogRoots.userAgentsRoot ?? path.join(os.homedir(), '.claude', 'agents')
   const pluginsCacheRoot = catalogRoots.pluginsCacheRoot ?? path.join(os.homedir(), '.claude', 'plugins', 'cache')
   const claudeJsonPath = catalogRoots.claudeJsonPath ?? path.join(os.homedir(), '.claude.json')
+
+  app.register(cors, {
+    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    // @fastify/cors v11 の methods 既定値は 'GET,HEAD,POST' のため、
+    // 明示しないとブラウザからの PUT / DELETE がプリフライトで弾かれる。
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
+  })
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof KeychainAccessError) {

@@ -1,11 +1,12 @@
 {
   "name": "skillam",
   "private": true,
+  "license": "Apache-2.0",
   "workspaces": [
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace @skillam/server",
+    "dev": "npm run dev --workspace @skillam/server & npm run dev --workspace @skillam/web",
     "test": "npm run test --workspaces --if-present"
   }
 }
