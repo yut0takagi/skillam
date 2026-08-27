@@ -592,15 +592,14 @@ function kindForStatus(status: number): ApiErrorKind {
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
+  const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) ?? {}) }
+  if (init?.body !== undefined && headers['content-type'] === undefined) {
+    headers['content-type'] = 'application/json'
+  }
+
   let response: Response
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
-      ...init,
-      headers: {
-        'content-type': 'application/json',
-        ...(init?.headers ?? {})
-      }
-    })
+    response = await fetch(`${BASE_URL}${path}`, { ...init, headers })
   } catch {
     return {
       ok: false,
@@ -629,10 +628,12 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<A
 }
 ```
 
+**`content-type` を body がある時だけ付ける理由**: 常に付けると Fastify が bodyless な DELETE を `Body cannot be empty when content-type is set to 'application/json'` として **400 で拒否する**（実サーバーで実測）。`deleteRole` / `deleteSecret` / `deleteAutoDetectRoot` の3つが全滅する。`fetch` をモックするユニットテストではこの不具合を検出できないので、ヘッダの有無を直接検証するテストを入れてある。
+
 - [ ] **Step 4: テストが通ることを確認してコミット**
 
 Run: `npm run test -w @skillam/web -- src/api/client.test.ts`
-Expected: PASS（7テスト）
+Expected: PASS（11テスト）
 
 ```bash
 git add apps/web/src/api/client.ts apps/web/src/api/client.test.ts

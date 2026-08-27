@@ -94,4 +94,34 @@ describe('apiRequest', () => {
       message: 'リクエストが失敗しました (HTTP 503)'
     })
   })
+
+  it('does not send a json content type on a request with no body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [] })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiRequest('/roles')
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect((init.headers as Record<string, string>)['content-type']).toBeUndefined()
+  })
+
+  it('sends a json content type when there is a body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiRequest('/roles', { method: 'POST', body: JSON.stringify({ name: 'x' }) })
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect((init.headers as Record<string, string>)['content-type']).toBe('application/json')
+  })
+
+  it('lets a caller supplied content type win', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiRequest('/x', { method: 'POST', body: 'raw', headers: { 'content-type': 'text/plain' } })
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect((init.headers as Record<string, string>)['content-type']).toBe('text/plain')
+  })
 })

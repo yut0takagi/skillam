@@ -20,14 +20,16 @@ function kindForStatus(status: number): ApiErrorKind {
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
+  const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) ?? {}) }
+  if (init?.body !== undefined && headers['content-type'] === undefined) {
+    headers['content-type'] = 'application/json'
+  }
+
   let response: Response
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       ...init,
-      headers: {
-        'content-type': 'application/json',
-        ...(init?.headers ?? {})
-      }
+      headers
     })
   } catch {
     return {
