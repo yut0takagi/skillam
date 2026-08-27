@@ -1,4 +1,11 @@
-const BASE_URL = 'http://127.0.0.1:4317'
+const DEV_BASE_URL = 'http://127.0.0.1:4317'
+
+function baseUrl(): string {
+  // The desktop shell injects the real port via preload, because the server
+  // takes a dynamic port. A plain browser has no injection, so fall back.
+  const injected = (globalThis as { skillam?: { apiBaseUrl?: string } }).skillam?.apiBaseUrl
+  return injected ?? DEV_BASE_URL
+}
 
 export type ApiErrorKind = 'badRequest' | 'notFound' | 'conflict' | 'failure' | 'network'
 
@@ -27,7 +34,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<A
 
   let response: Response
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
+    response = await fetch(`${baseUrl()}${path}`, {
       ...init,
       headers
     })
