@@ -33,6 +33,25 @@ describe('CORS', () => {
     expect(response.headers['access-control-allow-origin']).toBe('http://localhost:5173')
   })
 
+  it('allows the write methods the web ui needs', async () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    const app = buildApp(db)
+
+    const response = await app.inject({
+      method: 'OPTIONS',
+      url: '/projects/1/roles',
+      headers: {
+        origin: 'http://localhost:5173',
+        'access-control-request-method': 'PUT'
+      }
+    })
+
+    const allowed = String(response.headers['access-control-allow-methods'])
+    expect(allowed).toContain('PUT')
+    expect(allowed).toContain('DELETE')
+  })
+
   it('does not allow an unrelated origin', async () => {
     const db = openDb(':memory:')
     runMigrations(db)

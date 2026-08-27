@@ -3,6 +3,8 @@ import { Dashboard } from './pages/Dashboard.js'
 import { Roles } from './pages/Roles.js'
 import { Catalog } from './pages/Catalog.js'
 import { Settings } from './pages/Settings.js'
+import { ProjectDetail } from './pages/ProjectDetail.js'
+import { RoleEditor } from './pages/RoleEditor.js'
 
 export function AppRoutes() {
   return (
@@ -32,7 +34,9 @@ export function AppRoutes() {
       <main className="main">
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/roles" element={<Roles />} />
+          <Route path="/roles/:id" element={<RoleEditor />} />
           <Route path="/catalog" element={<Catalog />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>

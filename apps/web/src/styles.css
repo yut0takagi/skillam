@@ -135,6 +135,9 @@ body {
 .main {
   display: flex;
   flex-direction: column;
+  /* グリッド子は既定で min-width:auto となり、長いパス等で外へ膨らむ。
+     0 を明示してビューポート幅に収める（ページ全体の横スクロール防止） */
+  min-width: 0;
 }
 
 .topbar {
@@ -168,6 +171,7 @@ h1 {
   padding: var(--s5);
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: var(--s6);
 }
 
@@ -339,7 +343,7 @@ th {
 td { padding: 9px var(--s3); border-bottom: 1px solid var(--rule); vertical-align: top; }
 tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: var(--surface-sunk); }
-.cell-path { font-family: var(--mono); font-size: 12px; color: var(--ink-mid); }
+.cell-path { font-family: var(--mono); font-size: 12px; color: var(--ink-mid); word-break: break-all; }
 .cell-name { font-weight: 500; }
 .cell-name a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule-strong); }
 .cell-name a:hover { border-bottom-color: var(--accent); color: var(--accent); }
@@ -385,7 +389,8 @@ tbody tr:hover { background: var(--surface-sunk); }
 .callout-hint { font-size: 12px; color: var(--ink-mid); }
 
 /* ---------- panels ---------- */
-.split { display: grid; grid-template-columns: 1fr 320px; gap: var(--s5); align-items: start; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--s5); align-items: start; }
+.split > * { min-width: 0; }
 @media (max-width: 1080px) { .split { grid-template-columns: 1fr; } }
 .panel { border: 1px solid var(--rule); background: var(--surface); }
 .panel-head {
@@ -453,7 +458,6 @@ tbody tr:hover { background: var(--surface-sunk); }
 .row { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
 
-.stack { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
 .row { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
 
