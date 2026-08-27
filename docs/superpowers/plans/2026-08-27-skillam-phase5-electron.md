@@ -324,41 +324,13 @@ git commit -m "feat(web): resolve the api base url at runtime"
 
 ---
 
-### Task 3: CORS を条件付きにする
+### Task 3: CORS を条件付きにする — 実測の結果、不要だった
 
-Electron では同一プロセス内のサーバーへ `http://127.0.0.1:<port>` で話すため、`file://` オリジンからのリクエストになる。CORS 設定はブラウザ開発時のみ必要。
+**この Task は実装しない。** 計画時は「Electron は `file://` オリジンになるので CORS 設定の調整が要る」と想定していたが、実機で測ったら違った。
 
-**Files:**
-- Modify: `apps/server/src/app.ts`
-- Modify: `apps/server/src/app.test.ts`
+レンダラは `file://` から読み込まれるが、API へのリクエストは `http://127.0.0.1:<動的ポート>` 宛てで、既存の CORS 設定のまま 200 が返る。DevTools の Network で確認したところブロックは一切発生せず、`Vary: Origin` が付いた正常なレスポンスだった。6画面すべてがデータを取得できている。
 
-- [ ] **Step 1: 失敗するテストを書く**
-
-```ts
-  it('allows a file protocol origin so the desktop shell can call the api', async () => {
-    const db = openDb(':memory:')
-    runMigrations(db)
-    const app = buildApp(db)
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/health',
-      headers: { origin: 'file://' }
-    })
-
-    expect(response.statusCode).toBe(200)
-  })
-```
-
-**この挙動を実測で確かめること。** Electron のレンダラが `file://` から `fetch` するとき、実際に `Origin` ヘッダが何になるかは環境で異なる（`null` になる場合もある）。Task 5 で実機確認したうえで、必要なら設定を調整する。テストを先に書いて、実機の結果と合わなければテストを直す — 逆にしないこと。
-
-- [ ] **Step 2: 実装**
-
-`origin` の配列に `file://` を足すか、関数形式にして `file://` と `null` を許可する。どちらが正しいかは Task 5 の実機確認で決める。**この Task では実装せず、テストだけ書いて Task 5 まで持ち越してよい** — 推測で設定を足すと、後で不要なものが残る。
-
-- [ ] **Step 3: コミット（Task 5 の結果と合わせて行う）**
-
----
+`apps/server/src/app.ts` は変更しない。ブラウザ開発時（`localhost:5173`）のために入れてある既存の設定はそのまま必要。
 
 ### Task 4: Electron のメインプロセス
 
