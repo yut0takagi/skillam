@@ -23,6 +23,7 @@ import { secretsRoutes } from './secrets/secrets.routes.js'
 import { catalogRoutes } from './catalog/catalog.routes.js'
 import { ApplyHistoryRepository } from './apply/apply-history.repository.js'
 import { applyRoutes } from './apply/apply.routes.js'
+import { driftRoutes } from './apply/drift.routes.js'
 
 export interface CatalogRoots {
   userSkillsRoot?: string
@@ -116,6 +117,11 @@ export function buildApp(
     history: new ApplyHistoryRepository(db),
     secrets: new SecretsRepository(db),
     masterKeyProvider: new MasterKeyProvider(keychainClient)
+  })
+
+  app.register(driftRoutes, {
+    projects: new ProjectsRepository(db),
+    history: new ApplyHistoryRepository(db)
   })
 
   return app
