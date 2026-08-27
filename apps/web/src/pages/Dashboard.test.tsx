@@ -186,6 +186,36 @@ describe('Dashboard', () => {
     expect(screen.queryByRole('button', { name: '登録する' })).toBeNull()
   })
 
+  it('paginates a long list of unregistered candidates', async () => {
+    const manyCandidates: ScanCandidate[] = Array.from({ length: 80 }, (_, i) => ({
+      path: `/Users/dev/project-${i}`,
+      name: `project-${i}`
+    }))
+    stubFetch((url) => {
+      if (url.includes('/projects/scan')) {
+        return { status: 200, body: manyCandidates }
+      }
+      if (url.includes('/roles')) {
+        return { status: 200, body: [role] }
+      }
+      if (url.endsWith('/projects')) {
+        return { status: 200, body: [project] }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderDashboard()
+
+    await waitFor(() => expect(screen.getByText('project-0')).toBeDefined())
+    expect(screen.getByText('80 件中 1–25 件')).toBeDefined()
+    expect(screen.queryByText('project-79')).toBeNull()
+
+    const userEvent = (await import('@testing-library/user-event')).default
+    await userEvent.click(screen.getByRole('button', { name: '次へ' }))
+
+    await waitFor(() => expect(screen.getByText('project-25')).toBeDefined())
+    expect(screen.queryByText('project-0')).toBeNull()
+  })
+
   it('shows the message when registering fails', async () => {
     stubFetch((url, init) => {
       if (url.includes('/projects/scan')) {

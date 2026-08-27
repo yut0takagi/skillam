@@ -6,14 +6,14 @@ import {
   listSkillCandidates
 } from '../api/catalog.js'
 import { useApi } from '../lib/useApi.js'
+import { usePagination } from '../lib/usePagination.js'
+import { Pagination } from '../components/Pagination.js'
 import type {
   AgentCandidate,
   McpServerCandidate,
   PermissionsCandidate,
   SkillCandidate
 } from '../api/types.js'
-
-const ROW_CAP = 100
 
 type TabKey = 'skills' | 'agents' | 'mcp-servers' | 'permissions'
 
@@ -95,16 +95,19 @@ export function Catalog() {
     return items.filter((item) => item.projectPath.toLowerCase().includes(lowerFilter))
   }, [permissionsApi.data, lowerFilter])
 
-  const filteredByTab: Record<TabKey, { path: string }[]> = {
-    skills: filteredSkills as unknown as { path: string }[],
-    agents: filteredAgents as unknown as { path: string }[],
-    'mcp-servers': filteredMcp.map((item) => ({ path: item.name })),
-    permissions: filteredPermissions.map((item) => ({ path: item.projectPath }))
-  }
+  const skillsPagination = usePagination(filteredSkills)
+  const agentsPagination = usePagination(filteredAgents)
+  const mcpPagination = usePagination(filteredMcp)
+  const permissionsPagination = usePagination(filteredPermissions)
 
-  const activeFiltered = filteredByTab[activeTab]
-  const totalCount = activeFiltered.length
-  const capped = totalCount > ROW_CAP
+  const paginationByTab = {
+    skills: skillsPagination,
+    agents: agentsPagination,
+    'mcp-servers': mcpPagination,
+    permissions: permissionsPagination
+  } as const
+
+  const activePagination = paginationByTab[activeTab]
 
   const breakdownText = useMemo(() => {
     if (activeTab === 'skills') return sourceBreakdown(skillsApi.data ?? [])
@@ -161,16 +164,19 @@ export function Catalog() {
           <p className="empty">{activeApi.error}</p>
         ) : (
           <>
-            {activeTab === 'skills' && <SkillsTable items={filteredSkills} />}
-            {activeTab === 'agents' && <AgentsTable items={filteredAgents} />}
-            {activeTab === 'mcp-servers' && <McpTable items={filteredMcp} />}
-            {activeTab === 'permissions' && <PermissionsTable items={filteredPermissions} />}
+            {activeTab === 'skills' && <SkillsTable items={skillsPagination.pageItems} />}
+            {activeTab === 'agents' && <AgentsTable items={agentsPagination.pageItems} />}
+            {activeTab === 'mcp-servers' && <McpTable items={mcpPagination.pageItems} />}
+            {activeTab === 'permissions' && <PermissionsTable items={permissionsPagination.pageItems} />}
 
-            {capped ? (
-              <p className="hint">
-                {totalCount} 件中 {ROW_CAP} 件を表示。絞り込んでください。
-              </p>
-            ) : null}
+            <Pagination
+              page={activePagination.page}
+              pageCount={activePagination.pageCount}
+              total={activePagination.total}
+              rangeStart={activePagination.rangeStart}
+              rangeEnd={activePagination.rangeEnd}
+              onChange={activePagination.setPage}
+            />
           </>
         )}
       </div>
@@ -179,7 +185,7 @@ export function Catalog() {
 }
 
 function SkillsTable({ items }: { items: SkillCandidate[] }) {
-  const rows = items.slice(0, ROW_CAP)
+  const rows = items
   if (rows.length === 0) {
     return <p className="empty">条件に一致する候補はありません。</p>
   }
@@ -212,7 +218,7 @@ function SkillsTable({ items }: { items: SkillCandidate[] }) {
 }
 
 function AgentsTable({ items }: { items: AgentCandidate[] }) {
-  const rows = items.slice(0, ROW_CAP)
+  const rows = items
   if (rows.length === 0) {
     return <p className="empty">条件に一致する候補はありません。</p>
   }
@@ -245,7 +251,7 @@ function AgentsTable({ items }: { items: AgentCandidate[] }) {
 }
 
 function McpTable({ items }: { items: McpServerCandidate[] }) {
-  const rows = items.slice(0, ROW_CAP)
+  const rows = items
   if (rows.length === 0) {
     return <p className="empty">条件に一致する候補はありません。</p>
   }
@@ -285,7 +291,7 @@ function commandSummary(command: unknown): string {
 }
 
 function PermissionsTable({ items }: { items: PermissionsCandidate[] }) {
-  const rows = items.slice(0, ROW_CAP)
+  const rows = items
   if (rows.length === 0) {
     return <p className="empty">条件に一致する候補はありません。</p>
   }

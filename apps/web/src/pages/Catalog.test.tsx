@@ -148,7 +148,7 @@ describe('Catalog', () => {
     await waitFor(() => expect(screen.getByText('カタログを読み込めません')).toBeDefined())
   })
 
-  it('caps the rendered rows and says so when over the cap', async () => {
+  it('paginates a long list instead of capping and hiding rows', async () => {
     const manySkills: SkillCandidate[] = Array.from({ length: 200 }, (_, i) => ({
       source: 'plugin' as const,
       name: `skill-${i}`,
@@ -164,8 +164,17 @@ describe('Catalog', () => {
     renderCatalog()
 
     await waitFor(() => expect(screen.getByText('skill-0')).toBeDefined())
-    expect(screen.getByText(/200 件中 100 件を表示。絞り込んでください。/)).toBeDefined()
+    // First page shows only the first 25 of 200, with a range label — not a
+    // hard cap that tells the user to filter.
+    expect(screen.getByText('200 件中 1–25 件')).toBeDefined()
     expect(screen.queryByText('skill-199')).toBeNull()
+    expect(screen.queryByText(/絞り込んでください/)).toBeNull()
+
+    const userEvent = (await import('@testing-library/user-event')).default
+    await userEvent.click(screen.getByRole('button', { name: '8' }))
+
+    await waitFor(() => expect(screen.getByText('skill-175')).toBeDefined())
+    expect(screen.queryByText('skill-0')).toBeNull()
   })
 
   it('reload button refetches the active tab', async () => {

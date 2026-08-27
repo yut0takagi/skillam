@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { createProject, listProjects, scanProjects } from '../api/projects.js'
 import { listRoles } from '../api/roles.js'
 import { useApi } from '../lib/useApi.js'
+import { usePagination } from '../lib/usePagination.js'
+import { Pagination } from '../components/Pagination.js'
 
 export function Dashboard() {
   const projectsApi = useApi(useCallback(() => listProjects(), []))
@@ -44,6 +46,9 @@ export function Dashboard() {
   const projects = projectsApi.data ?? []
   const candidates = candidatesApi.data ?? []
 
+  const projectsPagination = usePagination(projects)
+  const candidatesPagination = usePagination(candidates)
+
   return (
     <>
       <div className="topbar">
@@ -70,44 +75,54 @@ export function Dashboard() {
               ) : projects.length === 0 ? (
                 <p className="empty">登録されたプロジェクトはありません。</p>
               ) : (
-                <div className="tbl-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>名前</th>
-                        <th>パス</th>
-                        <th>適用中のロール</th>
-                        <th>最終適用</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {projects.map((project) => (
-                        <tr key={project.id}>
-                          <td className="cell-name">
-                            <Link to={`/projects/${project.id}`}>{project.name}</Link>
-                          </td>
-                          <td className="cell-path">{project.path}</td>
-                          <td>
-                            {project.lastAppliedRoleId === null ? (
-                              <span className="pill pill-mute">未適用</span>
-                            ) : (
-                              <span className="pill pill-ok">
-                                {roleNameById.get(project.lastAppliedRoleId) ?? `#${project.lastAppliedRoleId}`}
-                              </span>
-                            )}
-                          </td>
-                          <td>{project.lastAppliedAt ?? '—'}</td>
-                          <td className="actions">
-                            <Link to={`/projects/${project.id}`} className="btn btn-sm">
-                              開く
-                            </Link>
-                          </td>
+                <>
+                  <div className="tbl-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>名前</th>
+                          <th>パス</th>
+                          <th>適用中のロール</th>
+                          <th>最終適用</th>
+                          <th></th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {projectsPagination.pageItems.map((project) => (
+                          <tr key={project.id}>
+                            <td className="cell-name">
+                              <Link to={`/projects/${project.id}`}>{project.name}</Link>
+                            </td>
+                            <td className="cell-path">{project.path}</td>
+                            <td>
+                              {project.lastAppliedRoleId === null ? (
+                                <span className="pill pill-mute">未適用</span>
+                              ) : (
+                                <span className="pill pill-ok">
+                                  {roleNameById.get(project.lastAppliedRoleId) ?? `#${project.lastAppliedRoleId}`}
+                                </span>
+                              )}
+                            </td>
+                            <td>{project.lastAppliedAt ?? '—'}</td>
+                            <td className="actions">
+                              <Link to={`/projects/${project.id}`} className="btn btn-sm">
+                                開く
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Pagination
+                    page={projectsPagination.page}
+                    pageCount={projectsPagination.pageCount}
+                    total={projectsPagination.total}
+                    rangeStart={projectsPagination.rangeStart}
+                    rangeEnd={projectsPagination.rangeEnd}
+                    onChange={projectsPagination.setPage}
+                  />
+                </>
               )}
             </section>
 
@@ -134,7 +149,7 @@ export function Dashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {candidates.map((candidate) => (
+                      {candidatesPagination.pageItems.map((candidate) => (
                         <tr key={candidate.path}>
                           <td className="cell-name">{candidate.name}</td>
                           <td className="cell-path">{candidate.path}</td>
@@ -156,6 +171,14 @@ export function Dashboard() {
                     </tbody>
                   </table>
                 </div>
+                <Pagination
+                  page={candidatesPagination.page}
+                  pageCount={candidatesPagination.pageCount}
+                  total={candidatesPagination.total}
+                  rangeStart={candidatesPagination.rangeStart}
+                  rangeEnd={candidatesPagination.rangeEnd}
+                  onChange={candidatesPagination.setPage}
+                />
                 <p className="hint">自動登録はしません。個別に選んでください。</p>
               </section>
             ) : null}

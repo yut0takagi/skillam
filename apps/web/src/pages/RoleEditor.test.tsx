@@ -95,6 +95,78 @@ describe('RoleEditor', () => {
     expect(within(checklist).getByText('lint-fix')).toBeDefined()
   })
 
+  it('paginates a long skill candidate list', async () => {
+    const manyCandidates: SkillCandidate[] = Array.from({ length: 60 }, (_, i) => ({
+      source: 'plugin' as const,
+      name: `skill-${String(i).padStart(2, '0')}`,
+      description: `説明 ${i}`,
+      path: `/plugins/skill-${i}/SKILL.md`
+    }))
+    stubFetch((url) => {
+      if (url.includes('/catalog/skills')) {
+        return { status: 200, body: manyCandidates }
+      }
+      if (url.includes('/roles/1')) {
+        return { status: 200, body: { ...roleDetail, skills: [] } }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderEditor()
+
+    await waitFor(() => expect(screen.getByText('skill-00')).toBeDefined())
+    expect(screen.getByText('60 件中 1–25 件')).toBeDefined()
+    expect(screen.queryByText('skill-59')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: '次へ' }))
+
+    await waitFor(() => expect(screen.getByText('skill-25')).toBeDefined())
+    expect(screen.queryByText('skill-00')).toBeNull()
+  })
+
+  it('keeps a checked skill checked after navigating away and back to its page', async () => {
+    const manyCandidates: SkillCandidate[] = Array.from({ length: 60 }, (_, i) => ({
+      source: 'plugin' as const,
+      name: `skill-${String(i).padStart(2, '0')}`,
+      description: `説明 ${i}`,
+      path: `/plugins/skill-${i}/SKILL.md`
+    }))
+    stubFetch((url) => {
+      if (url.includes('/catalog/skills')) {
+        return { status: 200, body: manyCandidates }
+      }
+      if (url.includes('/roles/1')) {
+        return { status: 200, body: { ...roleDetail, skills: [] } }
+      }
+      return { status: 404, body: { error: 'not found' } }
+    })
+    renderEditor()
+
+    // Page 1: check the first candidate.
+    await waitFor(() => expect(screen.getByText('skill-00')).toBeDefined())
+    const firstCheckbox = screen.getByRole('checkbox', { name: /skill-00/ }) as HTMLInputElement
+    await userEvent.click(firstCheckbox)
+    expect(firstCheckbox.checked).toBe(true)
+
+    // Move to page 2 — page 1's row (and its checkbox) unmounts from the
+    // checklist. (It still shows in the "selected" summary panel elsewhere
+    // on the page, which is unaffected by checklist pagination.)
+    await userEvent.click(screen.getByRole('button', { name: '次へ' }))
+    await waitFor(() => expect(screen.getByText('skill-25')).toBeDefined())
+    const checklist = document.querySelector('.checklist') as HTMLElement
+    expect(within(checklist).queryByText('skill-00')).toBeNull()
+
+    // Move back to page 1 — the checkbox must still be checked because
+    // selection state lives in the component, not in the rendered rows.
+    await userEvent.click(screen.getByRole('button', { name: '前へ' }))
+    await waitFor(() => expect(within(checklist).getByText('skill-00')).toBeDefined())
+    const firstCheckboxAgain = screen.getByRole('checkbox', { name: /skill-00/ }) as HTMLInputElement
+    expect(firstCheckboxAgain.checked).toBe(true)
+
+    // The "selected" summary panel also reflects it regardless of page.
+    const panel = document.querySelector('.panel-body') as HTMLElement
+    expect(within(panel).getByText('skill-00')).toBeDefined()
+  })
+
   it('saving skills sends skillSource/skillPath pairs', async () => {
     let sentBody: unknown = null
     stubFetch((url, init) => {

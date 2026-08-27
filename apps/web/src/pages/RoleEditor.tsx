@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom'
 import { getRole, setRoleAgents, setRoleMcpServers, setRolePermissions, setRoleSkills } from '../api/roles.js'
 import { listSkillCandidates } from '../api/catalog.js'
 import { useApi } from '../lib/useApi.js'
+import { usePagination } from '../lib/usePagination.js'
+import { Pagination } from '../components/Pagination.js'
 import type { RoleAgent, RoleMcpServer, SkillCandidate } from '../api/types.js'
 
 type TabKey = 'skills' | 'mcp' | 'agents' | 'permissions'
@@ -67,14 +69,16 @@ export function RoleEditor() {
     )
   }, [skillCandidates, filter])
 
+  const candidatesPagination = usePagination(filteredCandidates)
+
   const groupedCandidates = useMemo(() => {
     const groups: Record<string, SkillCandidate[]> = {}
-    for (const candidate of filteredCandidates) {
+    for (const candidate of candidatesPagination.pageItems) {
       groups[candidate.source] = groups[candidate.source] ?? []
       groups[candidate.source].push(candidate)
     }
     return groups
-  }, [filteredCandidates])
+  }, [candidatesPagination.pageItems])
 
   const selectedCandidates = useMemo(() => {
     if (!skillCandidates) {
@@ -234,17 +238,19 @@ export function RoleEditor() {
         </div>
 
         {tab === 'skills' && (
-          <div className="split" style={{ display: 'flex', gap: 'var(--s5)' }}>
-            <div className="stack" style={{ flex: 2 }}>
-              <div className="field grow">
-                <input
-                  type="search"
-                  role="searchbox"
-                  placeholder="スキルを名前・説明で検索"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  style={{ width: '100%' }}
-                />
+          <div className="split">
+            <div className="stack">
+              <div className="toolbar">
+                <div className="field grow">
+                  <input
+                    type="search"
+                    role="searchbox"
+                    placeholder="スキルを名前・説明で検索"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    style={{ width: '100%' }}
+                  />
+                </div>
               </div>
               <div className="checklist">
                 {Object.entries(groupedCandidates).map(([source, candidates]) => (
@@ -284,8 +290,16 @@ export function RoleEditor() {
                 ))}
                 {filteredCandidates.length === 0 && <p className="empty">該当するスキルがありません。</p>}
               </div>
+              <Pagination
+                page={candidatesPagination.page}
+                pageCount={candidatesPagination.pageCount}
+                total={candidatesPagination.total}
+                rangeStart={candidatesPagination.rangeStart}
+                rangeEnd={candidatesPagination.rangeEnd}
+                onChange={candidatesPagination.setPage}
+              />
             </div>
-            <div className="panel" style={{ flex: 1 }}>
+            <div className="panel">
               <div className="panel-head">選択中 ({selectedCandidates.length})</div>
               <div className="panel-body">
                 {selectedCandidates.length === 0 && <p className="empty">選択されたスキルはありません。</p>}
