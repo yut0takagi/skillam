@@ -31,7 +31,7 @@ export interface DriftReport {
 // definition of "what should be there". The last successful apply is the
 // only point where "recorded" and "on disk" were known to agree at write
 // time, which makes it the only sound baseline to diff the present against.
-function buildDriftReport(project: Project, deps: DriftRouteDeps): DriftReport {
+export function buildDriftReport(project: Project, deps: DriftRouteDeps): DriftReport {
   const lastSuccess = deps.history.lastSuccessful(project.id)
 
   if (!lastSuccess) {
