@@ -105,7 +105,7 @@ npm install @fastify/cors --workspace @skillam/server
 import cors from '@fastify/cors'
 ```
 
-`app.setErrorHandler(...)` の**前**に登録する（登録順が早いほうがプリフライトを確実に拾える）:
+`app.setErrorHandler(...)` の**前**に登録する（読みやすさのための位置。`@fastify/cors` は `onRequest` フックに入るため、`setErrorHandler` との登録順は動作に影響しない — 後に登録してもプリフライトは正しく処理される）:
 
 ```ts
   app.register(cors, {
