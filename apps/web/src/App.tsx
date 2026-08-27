@@ -1,4 +1,4 @@
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import { HashRouter, Link, Route, Routes } from 'react-router-dom'
 import { Dashboard } from './pages/Dashboard.js'
 import { Roles } from './pages/Roles.js'
 import { Catalog } from './pages/Catalog.js'
@@ -27,8 +27,8 @@ export function AppRoutes() {
 
 export function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <AppRoutes />
-    </BrowserRouter>
+    </HashRouter>
   )
 }
