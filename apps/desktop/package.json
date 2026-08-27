@@ -3,8 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "electron .",
+    "rebuild": "electron-rebuild -f -w better-sqlite3"
+  },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
-    "electron": "^44.0.0"
+    "electron": "^44.0.0",
+    "typescript": "^5.9.3"
   }
 }
