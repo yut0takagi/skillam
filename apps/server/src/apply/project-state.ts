@@ -9,9 +9,17 @@ import type { CurrentEntry } from './plan-materialize.js'
 // cannot parse). One error class for one condition, so every caller —
 // planning or read-only — can catch it the same way.
 export class UnreadableConfigError extends Error {
-  constructor(message: string) {
+  // Set only by the two throw sites below, where "which file" is
+  // well-defined. plan-settings.ts reuses this class for a different
+  // condition (settings.permissions has the wrong shape) where there is no
+  // single offending file, so callers must treat this as optional rather
+  // than assume every UnreadableConfigError names a file.
+  readonly filePath?: string
+
+  constructor(message: string, filePath?: string) {
     super(message)
     this.name = 'UnreadableConfigError'
+    this.filePath = filePath
   }
 }
 
@@ -32,12 +40,14 @@ export function readJsonObject(raw: string | null, filePath: string): Record<str
     parsed = JSON.parse(raw)
   } catch {
     throw new UnreadableConfigError(
-      `${filePath} が JSON として読めません。skillam は解釈できないファイルを上書きしません。`
+      `${filePath} が JSON として読めません。skillam は解釈できないファイルを上書きしません。`,
+      filePath
     )
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new UnreadableConfigError(
-      `${filePath} の中身がオブジェクトではありません。skillam は解釈できないファイルを上書きしません。`
+      `${filePath} の中身がオブジェクトではありません。skillam は解釈できないファイルを上書きしません。`,
+      filePath
     )
   }
   return parsed as Record<string, unknown>

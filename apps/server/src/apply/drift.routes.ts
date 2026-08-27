@@ -114,14 +114,29 @@ export const driftRoutes: FastifyPluginAsync<DriftRouteDeps> = async (app, deps)
         // entire list (which would make the dashboard useless the moment
         // any single project's settings.json got hand-edited into invalid
         // JSON).
+        //
+        // Kind: 'config-unreadable', not 'materialized-changed'. The latter
+        // means "a symlink skillam created was replaced by something
+        // else" — a completely different condition from "this JSON does
+        // not parse". Borrowing an unrelated kind here would tell the user
+        // the wrong diagnosis (and point them at the wrong fix), which is
+        // the same mistake already avoided by not implementing
+        // 'mcp-server-changed': do not express a state through a kind that
+        // doesn't mean that state.
+        //
+        // Target: the offending file's path, not the project's path.
+        // UnreadableConfigError already carries it (set at the two throw
+        // sites in project-state.ts), and naming the exact file reads
+        // better in CLI/dashboard output than repeating the project path
+        // the caller already has in `projectPath`.
         reports.push({
           projectId: project.id,
           projectPath: project.path,
           hasDrift: true,
           items: [
             {
-              kind: 'materialized-changed',
-              target: project.path,
+              kind: 'config-unreadable',
+              target: error.filePath ?? project.path,
               detail: error.message
             }
           ],

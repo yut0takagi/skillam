@@ -6,6 +6,7 @@ export type DriftKind =
   | 'mcp-server-missing'
   | 'materialized-missing'
   | 'materialized-changed'
+  | 'config-unreadable'
 
 export interface DriftItem {
   kind: DriftKind

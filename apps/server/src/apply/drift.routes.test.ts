@@ -146,7 +146,12 @@ describe('drift routes', () => {
     )
     const broken = body.find((r) => r.projectId === secondId)
     expect(broken?.hasDrift).toBe(true)
-    expect(broken?.items).toHaveLength(1)
+    expect(broken?.items).toEqual([
+      expect.objectContaining({
+        kind: 'config-unreadable',
+        target: path.join(secondPath, '.claude', 'settings.json')
+      })
+    ])
   })
 
   it('omits excluded projects from GET /drift', async () => {
