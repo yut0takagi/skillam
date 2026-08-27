@@ -10,10 +10,14 @@ export function ConfirmDialog({ open, message, onConfirm, onCancel }: ConfirmDia
     return null
   }
   return (
-    <div role="dialog" aria-modal="true">
-      <p>{message}</p>
-      <button type="button" onClick={onConfirm}>実行する</button>
-      <button type="button" onClick={onCancel}>やめる</button>
+    <div className="dialog-backdrop">
+      <div role="dialog" aria-modal="true" className="dialog">
+        <p>{message}</p>
+        <div className="dialog-actions">
+          <button type="button" className="btn" onClick={onCancel}>やめる</button>
+          <button type="button" className="btn btn-primary" onClick={onConfirm}>実行する</button>
+        </div>
+      </div>
     </div>
   )
 }
