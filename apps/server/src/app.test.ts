@@ -18,6 +18,36 @@ describe('GET /health', () => {
   })
 })
 
+describe('CORS', () => {
+  it('allows the vite dev server origin', async () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    const app = buildApp(db)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { origin: 'http://localhost:5173' }
+    })
+
+    expect(response.headers['access-control-allow-origin']).toBe('http://localhost:5173')
+  })
+
+  it('does not allow an unrelated origin', async () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    const app = buildApp(db)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { origin: 'https://evil.example.com' }
+    })
+
+    expect(response.headers['access-control-allow-origin']).toBeUndefined()
+  })
+})
+
 describe('error handler', () => {
   it('returns 400 (not 500) when the framework itself rejects a malformed JSON body', async () => {
     const db = openDb(':memory:')
