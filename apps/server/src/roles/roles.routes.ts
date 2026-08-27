@@ -7,6 +7,7 @@ import type { RoleMcpServerInput } from './role-mcp-servers.types.js'
 import { RoleAgentsRepository } from './role-agents.repository.js'
 import type { RoleAgentInput } from './role-agents.types.js'
 import { RolePermissionsRepository } from './role-permissions.repository.js'
+import { fromExportPayload, toExportPayload, RoleImportError, type RoleDetail } from './role-export.js'
 
 export interface RolesRouteDeps {
   roles: RolesRepository
@@ -27,6 +28,20 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 function hasBody(body: unknown): body is Record<string, unknown> {
   return typeof body === 'object' && body !== null
+}
+
+function getRoleDetail(deps: RolesRouteDeps, id: number): RoleDetail | undefined {
+  const role = deps.roles.getById(id)
+  if (!role) {
+    return undefined
+  }
+  return {
+    ...role,
+    skills: deps.skills.listForRole(id),
+    mcpServers: deps.mcpServers.listForRole(id),
+    agents: deps.agents.listForRole(id),
+    permissions: deps.permissions.getForRole(id) ?? null
+  }
 }
 
 export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps) => {
@@ -58,17 +73,11 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
 
   app.get<{ Params: { id: string } }>('/roles/:id', async (request, reply) => {
     const id = Number(request.params.id)
-    const role = deps.roles.getById(id)
-    if (!role) {
+    const detail = getRoleDetail(deps, id)
+    if (!detail) {
       return reply.status(404).send({ error: 'role not found' })
     }
-    return {
-      ...role,
-      skills: deps.skills.listForRole(id),
-      mcpServers: deps.mcpServers.listForRole(id),
-      agents: deps.agents.listForRole(id),
-      permissions: deps.permissions.getForRole(id) ?? null
-    }
+    return detail
   })
 
   app.put<{ Params: { id: string }; Body: { name?: string; description?: string } }>(
@@ -204,4 +213,43 @@ export const rolesRoutes: FastifyPluginAsync<RolesRouteDeps> = async (app, deps)
       return deps.permissions.setForRole(id, { permissions: request.body.permissions })
     }
   )
+
+  app.get<{ Params: { id: string } }>('/roles/:id/export', async (request, reply) => {
+    const id = Number(request.params.id)
+    const detail = getRoleDetail(deps, id)
+    if (!detail) {
+      return reply.status(404).send({ error: 'role not found' })
+    }
+    return toExportPayload(detail)
+  })
+
+  app.post<{ Body: unknown }>('/roles/import', async (request, reply) => {
+    let parsed
+    try {
+      parsed = fromExportPayload(request.body)
+    } catch (error) {
+      if (error instanceof RoleImportError) {
+        return reply.status(400).send({ error: error.message })
+      }
+      throw error
+    }
+
+    let role
+    try {
+      role = deps.roles.create({ name: parsed.name, description: parsed.description })
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return reply.status(409).send({ error: `a role named "${parsed.name}" already exists` })
+      }
+      throw error
+    }
+
+    deps.skills.replaceForRole(role.id, parsed.skills)
+    deps.mcpServers.replaceForRole(role.id, parsed.mcpServers)
+    deps.agents.replaceForRole(role.id, parsed.agents)
+    deps.permissions.setForRole(role.id, { permissions: parsed.permissions })
+
+    const detail = getRoleDetail(deps, role.id)
+    return reply.status(201).send(detail)
+  })
 }
