@@ -41,18 +41,29 @@ Claude Code の設定を、IAM のロールのように管理するローカル�
 | 複数ロールの割り当て | UI のみ。適用は 1 ロールずつ |
 | ドリフト検知 | 未実装 |
 | ロール定義のエクスポート / インポート | 未実装 |
-| Electron アプリ化 | 未着手（移行予定） |
+| Electron アプリ化 | 起動する。配布用のビルド（.app / .dmg）は未対応 |
 
 ## 使い方
 
 必要なもの: Node.js 20 以上、macOS（キーチェーン連携のため）。
 
+### デスクトップアプリとして起動する
+
 ```bash
 npm install
+npm run rebuild -w @skillam/desktop   # 初回のみ。better-sqlite3 を Electron 向けにビルドする
+npm run dev:app
+```
+
+ウィンドウが開く。サーバーは同じプロセス内で空きポートを取って起動し、終了すると一緒に止まる。
+
+### ブラウザで開発する
+
+```bash
 npm run dev
 ```
 
-サーバーが `127.0.0.1:4317`、Web UI が `localhost:5173` で起動する。ブラウザで `http://localhost:5173` を開く。
+サーバーが `127.0.0.1:4317`、Web UI が `localhost:5173` で起動する。ブラウザで `http://localhost:5173` を開く。HMR が効くので、UI をいじるときはこちらが速い。
 
 データは `~/.skillam/skillam.db` に置かれる。別の場所を使うなら `SKILLAM_DB_PATH` を指定する。
 
@@ -187,6 +198,7 @@ apps/
       apply/     差分計算とマージ適用
       secrets/   キーチェーン連携・暗号化
       db/        スキーマとマイグレーション
+  desktop/       Electron のメインプロセス
   web/           Vite + React
     src/
       api/       型付き API クライアント

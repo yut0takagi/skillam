@@ -124,4 +124,23 @@ describe('apiRequest', () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit
     expect((init.headers as Record<string, string>)['content-type']).toBe('text/plain')
   })
+
+  it('uses the base url injected by the desktop shell when present', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('skillam', { apiBaseUrl: 'http://127.0.0.1:51234' })
+
+    await apiRequest('/roles')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:51234/roles')
+  })
+
+  it('falls back to the dev server port in a plain browser', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiRequest('/roles')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:4317/roles')
+  })
 })
