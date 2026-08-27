@@ -8,7 +8,7 @@ import type { RolePermissionsRepository } from '../roles/role-permissions.reposi
 import type { ApplyHistoryRepository } from './apply-history.repository.js'
 import type { ApplyHistoryEntry } from './apply-history.types.js'
 import type { ManagedState } from './managed-state.js'
-import { planSettings, UnsupportedSettingsError, type RolePermissionsShape } from './plan-settings.js'
+import { planSettings, type RolePermissionsShape } from './plan-settings.js'
 import { planMcp } from './plan-mcp.js'
 import {
   planMaterialize,
@@ -17,6 +17,7 @@ import {
   type DesiredEntry,
   type MaterializeOperation
 } from './plan-materialize.js'
+import { readFileOrNull, readJsonObject, readCurrentEntry } from './project-state.js'
 
 export interface ApplyPlannerDeps {
   skills: RoleSkillsRepository
@@ -43,53 +44,8 @@ export interface ApplyPlan {
   managed: ManagedState
 }
 
-function readFileOrNull(filePath: string): string | null {
-  try {
-    return fs.readFileSync(filePath, 'utf-8')
-  } catch {
-    return null
-  }
-}
-
-function parseJsonObject(raw: string | null, filePath: string): Record<string, unknown> {
-  if (raw === null) {
-    return {}
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    throw new UnsupportedSettingsError(
-      `${filePath} が JSON として読めません。skillam は解釈できないファイルを上書きしません。`
-    )
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new UnsupportedSettingsError(
-      `${filePath} の中身がオブジェクトではありません。skillam は解釈できないファイルを上書きしません。`
-    )
-  }
-  return parsed as Record<string, unknown>
-}
-
 function formatJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`
-}
-
-function readCurrentEntry(projectPath: string, relativePath: string): CurrentEntry | undefined {
-  const absolutePath = path.join(projectPath, relativePath)
-  let stats: fs.Stats
-  try {
-    stats = fs.lstatSync(absolutePath)
-  } catch {
-    return undefined
-  }
-  if (stats.isSymbolicLink()) {
-    return { kind: 'link', target: fs.readlinkSync(absolutePath) }
-  }
-  if (stats.isFile()) {
-    return { kind: 'file', content: fs.readFileSync(absolutePath, 'utf-8') }
-  }
-  return { kind: 'other' }
 }
 
 // Everything skillam has attempted since its last known-good state (i.e.
@@ -139,7 +95,7 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
   const settingsPath = path.join(project.path, '.claude', 'settings.json')
   const settingsBefore = readFileOrNull(settingsPath)
   const settingsResult = planSettings({
-    currentSettings: parseJsonObject(settingsBefore, settingsPath),
+    currentSettings: readJsonObject(settingsBefore, settingsPath),
     rolePermissions: toRolePermissions(deps.permissions.getForRole(roleId)?.permissions),
     previous
   })
@@ -147,7 +103,7 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
   const mcpPath = path.join(project.path, '.mcp.json')
   const mcpBefore = readFileOrNull(mcpPath)
   const mcpResult = planMcp({
-    currentMcpJson: parseJsonObject(mcpBefore, mcpPath),
+    currentMcpJson: readJsonObject(mcpBefore, mcpPath),
     roleServers: deps.mcpServers.listForRole(roleId).map((server) => ({
       name: server.name,
       command: server.command,
