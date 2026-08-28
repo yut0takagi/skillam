@@ -1,0 +1,54 @@
+appId: dev.yut0takagi.skillam
+productName: skillam
+copyright: Copyright (c) 2026 Yuto Takagi
+
+directories:
+  output: release
+  buildResources: build
+
+# The desktop main process resolves the server and the web bundle through
+# paths relative to itself (`../../web/dist`, and `@skillam/server/dist/...`).
+# Packaging therefore mirrors the monorepo's `apps/*` layout inside the asar
+# so those same relative paths keep resolving, rather than rewriting them.
+files:
+  - from: dist
+    to: apps/desktop/dist
+    filter: ['**/*']
+  - from: ../web/dist
+    to: apps/web/dist
+    filter: ['**/*']
+  - from: ../server/dist
+    to: apps/server/dist
+    filter: ['**/*']
+  - package.json
+
+extraMetadata:
+  main: apps/desktop/dist/main.js
+
+# better-sqlite3 ships prebuilt binaries for every platform and its Electron
+# ABI build works as-is (verified against Electron 44 / ABI 149), so no
+# native rebuild step is needed. It must stay unpacked because a .node
+# binary cannot be dlopen'd from inside an asar archive.
+asar: true
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+# Notarization runs only when App Store Connect API credentials are present in
+# the environment (APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER).
+# Credentials are never stored in the repo. Without them the build still
+# produces a signed app; it is just not notarized, and other Macs will warn
+# on first open. See docs/DISTRIBUTION.md.
+afterSign: scripts/notarize.js
+
+dmg:
+  title: skillam ${version}

@@ -2,8 +2,12 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    // Node16 keeps `await import()` as a real dynamic import instead of
+    // downleveling it to require(). apps/server is ESM, so the emitted call
+    // must stay an import — a require() of an ESM module is not guaranteed
+    // to work and would tie the app to one Node version's behaviour.
+    "module": "Node16",
+    "moduleResolution": "Node16",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

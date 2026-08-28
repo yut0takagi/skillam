@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import * as path from 'path'
+import { pathToFileURL } from 'url'
 
 interface StartedServer {
   port: number
@@ -18,15 +19,25 @@ interface DbClientModule {
 }
 
 // apps/server is ESM with no type declarations emitted (declaration: false),
-// so the deep subpath import resolves fine at runtime but has no static
-// types. Load it dynamically and cast, rather than adding an exports map
-// or .d.ts files that apps/server does not otherwise need.
+// so these imports have no static types and are cast at the boundary.
+//
+// They resolve by path rather than by the '@skillam/server' bare specifier:
+// that specifier only works through the npm-workspaces symlink in
+// node_modules, which is not present in a packaged app. Packaging mirrors the
+// monorepo's apps/* layout, so '../../server/dist/...' relative to this file
+// resolves in both the repo and the asar. pathToFileURL is required because
+// a Windows path is not a valid ESM specifier.
 async function loadServerRuntime(): Promise<{
   startServer: ServerRuntimeModule['startServer']
   resolveDbPath: DbClientModule['resolveDbPath']
 }> {
-  const serverRuntime = (await import('@skillam/server/dist/server-runtime.js')) as ServerRuntimeModule
-  const dbClient = (await import('@skillam/server/dist/db/client.js')) as DbClientModule
+  const serverDist = path.join(__dirname, '../../server/dist')
+  const serverRuntime = (await import(
+    pathToFileURL(path.join(serverDist, 'server-runtime.js')).href
+  )) as ServerRuntimeModule
+  const dbClient = (await import(
+    pathToFileURL(path.join(serverDist, 'db/client.js')).href
+  )) as DbClientModule
   return { startServer: serverRuntime.startServer, resolveDbPath: dbClient.resolveDbPath }
 }
 
