@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { createProject, listProjects, scanProjects } from '../api/projects.js'
+import { createProject, listDrift, listProjects, scanProjects } from '../api/projects.js'
 import { listRoles } from '../api/roles.js'
 import { useApi } from '../lib/useApi.js'
 import { usePagination } from '../lib/usePagination.js'
@@ -10,6 +10,10 @@ export function Dashboard() {
   const projectsApi = useApi(useCallback(() => listProjects(), []))
   const candidatesApi = useApi(useCallback(() => scanProjects(), []))
   const rolesApi = useApi(useCallback(() => listRoles(), []))
+  // GET /drift answers every registered project at once (measured ~2-5ms
+  // steady-state against the dev scratch DB), so it is fetched once here
+  // alongside the project list rather than once per row.
+  const driftApi = useApi(useCallback(() => listDrift(), []))
 
   const [registerError, setRegisterError] = useState<string | null>(null)
   const [pendingPath, setPendingPath] = useState<string | null>(null)
@@ -22,10 +26,23 @@ export function Dashboard() {
     return map
   }, [rolesApi.data])
 
+  const driftCountByProjectId = useMemo(() => {
+    const map = new Map<number, number>()
+    // A failed /drift request must not break the rest of the dashboard —
+    // driftApi.data stays null and every row simply shows no badge.
+    for (const report of driftApi.data ?? []) {
+      if (report.hasDrift) {
+        map.set(report.projectId, report.items.length)
+      }
+    }
+    return map
+  }, [driftApi.data])
+
   const reloadAll = useCallback(() => {
     projectsApi.reload()
     candidatesApi.reload()
-  }, [projectsApi, candidatesApi])
+    driftApi.reload()
+  }, [projectsApi, candidatesApi, driftApi])
 
   const handleRegister = useCallback(
     async (path: string, name: string) => {
@@ -84,6 +101,7 @@ export function Dashboard() {
                           <th>パス</th>
                           <th>適用中のロール</th>
                           <th>最終適用</th>
+                          <th>ズレ</th>
                           <th></th>
                         </tr>
                       </thead>
@@ -104,6 +122,13 @@ export function Dashboard() {
                               )}
                             </td>
                             <td>{project.lastAppliedAt ?? '—'}</td>
+                            <td>
+                              {driftCountByProjectId.has(project.id) ? (
+                                <span className="pill pill-warn">
+                                  {driftCountByProjectId.get(project.id)}件のズレ
+                                </span>
+                              ) : null}
+                            </td>
                             <td className="actions">
                               <Link to={`/projects/${project.id}`} className="btn btn-sm">
                                 開く

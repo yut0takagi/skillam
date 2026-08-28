@@ -1,5 +1,5 @@
 import { apiRequest } from './client.js'
-import type { Role, RoleDetail, RoleSkill, RoleMcpServer, RoleAgent } from './types.js'
+import type { Role, RoleDetail, RoleSkill, RoleMcpServer, RoleAgent, RoleExportPayload } from './types.js'
 
 export const listRoles = () => apiRequest<Role[]>('/roles')
 export const getRole = (id: number) => apiRequest<RoleDetail>(`/roles/${id}`)
@@ -41,3 +41,8 @@ export const setRolePermissions = (id: number, permissions: unknown) =>
     method: 'PUT',
     body: JSON.stringify({ permissions })
   })
+
+export const exportRole = (id: number) => apiRequest<RoleExportPayload>(`/roles/${id}/export`)
+
+export const importRole = (payload: unknown) =>
+  apiRequest<RoleDetail>('/roles/import', { method: 'POST', body: JSON.stringify(payload) })

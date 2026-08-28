@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import {
   applyRole,
   getProject,
+  getProjectDrift,
   listApplyHistory,
   listProjectRoles,
   previewApply,
@@ -13,6 +14,14 @@ import { useApi } from '../lib/useApi.js'
 import { DiffView } from '../components/DiffView.js'
 import type { ApiErrorKind } from '../api/client.js'
 import type { ApplyPlan, ManagedState, MaterializeOperation, Role } from '../api/types.js'
+
+const DRIFT_KIND_LABEL: Record<string, string> = {
+  'permission-missing': '権限の欠落',
+  'mcp-server-missing': 'MCPサーバーの欠落',
+  'materialized-missing': '配置ファイルの欠落',
+  'materialized-changed': '配置ファイルの変更',
+  'config-unreadable': '設定ファイルが読めません'
+}
 
 const OP_LABEL: Record<MaterializeOperation['type'], string> = {
   'create-link': 'リンク作成',
@@ -62,6 +71,7 @@ export function ProjectDetail() {
   const rolesApi = useApi(useCallback(() => listRoles(), []))
   const projectRolesApi = useApi(useCallback(() => listProjectRoles(projectId), [projectId]))
   const historyApi = useApi(useCallback(() => listApplyHistory(projectId), [projectId]))
+  const driftApi = useApi(useCallback(() => getProjectDrift(projectId), [projectId]))
 
   const [checkedRoleIds, setCheckedRoleIds] = useState<number[]>([])
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -323,6 +333,30 @@ export function ProjectDetail() {
               </div>
             )
           ) : null}
+
+          <section>
+            <div className="sec-head">
+              <h2>ドリフト</h2>
+            </div>
+            {driftApi.error ? (
+              <p className="empty">{driftApi.error}</p>
+            ) : driftApi.data && driftApi.data.hasDrift ? (
+              <div className="hist">
+                {driftApi.data.items.map((item, index) => (
+                  <div className="hist-row" data-testid="drift-row" key={index}>
+                    <span className="hist-bar hist-bar-fail" />
+                    <div className="hist-main">
+                      <p className="hist-title">{DRIFT_KIND_LABEL[item.kind] ?? item.kind}</p>
+                      <p className="hist-detail">{item.target}</p>
+                      <p className="hist-detail">{item.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty">ズレは検出されていません。</p>
+            )}
+          </section>
 
           <section>
             <div className="sec-head">

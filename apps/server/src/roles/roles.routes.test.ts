@@ -486,4 +486,218 @@ describe('roles routes', () => {
 
     expect(response.statusCode).toBe(400)
   })
+
+  it('exports a role via GET /roles/:id/export', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/roles',
+      payload: { name: 'export-role', description: 'for export' }
+    })
+    const { id } = created.json()
+
+    await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/skills`,
+      payload: { skills: [{ skillSource: 'user', skillPath: '/Users/x/.claude/skills/drawio' }] }
+    })
+    await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/mcp-servers`,
+      payload: {
+        servers: [
+          {
+            name: 'github',
+            command: { command: 'npx', args: [] },
+            env: { TOKEN: 'secret_ref:mcp:github:TOKEN' }
+          }
+        ]
+      }
+    })
+    await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/agents`,
+      payload: {
+        agents: [
+          { name: 'reviewer', markdownBody: '# Reviewer', source: 'reference', sourcePath: '/Users/x/agent.md' }
+        ]
+      }
+    })
+    await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/permissions`,
+      payload: { permissions: { allow: ['Read(*)'], deny: [] } }
+    })
+
+    const response = await app.inject({ method: 'GET', url: `/roles/${id}/export` })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body).toMatchObject({
+      skillamRoleVersion: 1,
+      name: 'export-role',
+      description: 'for export',
+      skills: [{ skillSource: 'user', skillPath: '/Users/x/.claude/skills/drawio' }],
+      mcpServers: [
+        {
+          name: 'github',
+          command: { command: 'npx', args: [] },
+          env: { TOKEN: 'secret_ref:mcp:github:TOKEN' }
+        }
+      ],
+      agents: [
+        {
+          name: 'reviewer',
+          markdownBody: '# Reviewer',
+          source: 'reference',
+          sourcePath: '/Users/x/agent.md'
+        }
+      ],
+      permissions: { allow: ['Read(*)'], deny: [] }
+    })
+    // The secret must survive export only as a reference, never resolved.
+    expect(response.body).not.toContain('ghp_')
+    expect(response.body).toContain('secret_ref:mcp:github:TOKEN')
+  })
+
+  it('returns 404 for GET /roles/:id/export when missing', async () => {
+    const response = await app.inject({ method: 'GET', url: '/roles/999/export' })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('imports a role via POST /roles/import, creating all four sub-resources (round-trip through HTTP)', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/roles',
+      payload: { name: 'source-role', description: 'original' }
+    })
+    const { id: sourceId } = created.json()
+
+    await app.inject({
+      method: 'PUT',
+      url: `/roles/${sourceId}/skills`,
+      payload: { skills: [{ skillSource: 'user', skillPath: '/Users/x/.claude/skills/drawio' }] }
+    })
+    await app.inject({
+      method: 'PUT',
+      url: `/roles/${sourceId}/mcp-servers`,
+      payload: {
+        servers: [
+          {
+            name: 'github',
+            command: { command: 'npx', args: [] },
+            env: { TOKEN: 'secret_ref:mcp:github:TOKEN' }
+          }
+        ]
+      }
+    })
+    await app.inject({
+      method: 'PUT',
+      url: `/roles/${sourceId}/agents`,
+      payload: {
+        agents: [
+          { name: 'reviewer', markdownBody: '# Reviewer', source: 'reference', sourcePath: '/Users/x/agent.md' }
+        ]
+      }
+    })
+    await app.inject({
+      method: 'PUT',
+      url: `/roles/${sourceId}/permissions`,
+      payload: { permissions: { allow: ['Read(*)'], deny: [] } }
+    })
+
+    const exportResponse = await app.inject({ method: 'GET', url: `/roles/${sourceId}/export` })
+    const payload = exportResponse.json()
+    payload.name = 'imported-role'
+
+    const importResponse = await app.inject({
+      method: 'POST',
+      url: '/roles/import',
+      payload
+    })
+
+    expect(importResponse.statusCode).toBe(201)
+    const importedRole = importResponse.json()
+    expect(importedRole.name).toBe('imported-role')
+    expect(importedRole.id).not.toBe(sourceId)
+
+    const getResponse = await app.inject({ method: 'GET', url: `/roles/${importedRole.id}` })
+    expect(getResponse.statusCode).toBe(200)
+    const detail = getResponse.json()
+    expect(detail.skills).toEqual([
+      { id: expect.any(Number), skillSource: 'user', skillPath: '/Users/x/.claude/skills/drawio' }
+    ])
+    expect(detail.mcpServers).toEqual([
+      {
+        id: expect.any(Number),
+        name: 'github',
+        command: { command: 'npx', args: [] },
+        env: { TOKEN: 'secret_ref:mcp:github:TOKEN' }
+      }
+    ])
+    expect(detail.agents).toEqual([
+      {
+        id: expect.any(Number),
+        name: 'reviewer',
+        markdownBody: '# Reviewer',
+        source: 'reference',
+        sourcePath: '/Users/x/agent.md'
+      }
+    ])
+    expect(detail.permissions).toEqual({
+      roleId: importedRole.id,
+      permissions: { allow: ['Read(*)'], deny: [] }
+    })
+  })
+
+  it('rejects POST /roles/import with 409 when the name is already taken, and does not overwrite the existing role', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/roles',
+      payload: { name: 'taken-name', description: 'original description' }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/roles/import',
+      payload: {
+        skillamRoleVersion: 1,
+        name: 'taken-name',
+        description: 'imported description',
+        skills: [],
+        mcpServers: [],
+        agents: [],
+        permissions: null
+      }
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json()).toMatchObject({ error: expect.stringContaining('taken-name') })
+
+    const listResponse = await app.inject({ method: 'GET', url: '/roles' })
+    const roles = listResponse.json()
+    const existing = roles.find((role: { name: string }) => role.name === 'taken-name')
+    expect(existing.description).toBe('original description')
+    expect(roles.filter((role: { name: string }) => role.name === 'taken-name')).toHaveLength(1)
+  })
+
+  it('rejects POST /roles/import with 400 on a malformed payload', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/roles/import',
+      payload: { skillamRoleVersion: 1 }
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('rejects POST /roles/import with 400 when skillamRoleVersion is unsupported', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/roles/import',
+      payload: { skillamRoleVersion: 999, name: 'x' }
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
 })

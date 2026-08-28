@@ -1,11 +1,14 @@
 import { staleEntries, type ManagedState } from './managed-state.js'
+import { UnreadableConfigError } from './project-state.js'
 
-export class UnsupportedSettingsError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'UnsupportedSettingsError'
-  }
-}
+// planSettings only ever throws this for one condition — the recorded
+// settings.permissions value is not an object — which is the same
+// "can't safely interpret this config" condition project-state.ts
+// guards against for the raw file read/parse step. Kept as one shared
+// class (re-exported under its historical name) so every catch/instanceof
+// site, old and new, sees the same error type instead of two unrelated
+// ones for the same failure.
+export const UnsupportedSettingsError = UnreadableConfigError
 
 export interface RolePermissionsShape {
   allow?: string[]
