@@ -42,12 +42,29 @@ Claude Code の設定を、IAM のロールのように管理するローカル�
 | ドリフト検知（UI バッジ + `skillam check`） | 動作 |
 | ロール定義のエクスポート / インポート | 動作 |
 | Electron アプリ化と配布ビルド（署名済み .app / .dmg） | 動作 |
-| プロジェクト群への配布（グループ / スコープ） | 設計済み・未実装 |
+| プロジェクト群への配布（グループ / スコープ） | 動作 |
 
 複数のロールを1つのプロジェクトに割り当てると、Skill / Agent / MCP / 権限が
 合成されて適用される。`deny` は `allow` に優先し、別々のロールが同じ名前で
 違うものを指していれば適用を中止する。詳細は
 [docs/ROLE-COMPOSITION.md](docs/ROLE-COMPOSITION.md)。
+
+ロールがプロジェクトに届く経路は3つある。強い順に:
+
+| 経路 | 例 |
+|---|---|
+| 直接 | このプロジェクトだけ Playwright を足す |
+| グループ | TypeScript を使う全 PJT に TS 用ロール |
+| スコープ | `~/work/company` 配下すべてに社内規約ロール |
+
+スコープはパスの前方一致で当たるので、配下にプロジェクトを置くだけで
+ロールが降りてくる。グループは所属を明示する多対多で、ディレクトリの
+位置に縛られない。適用プレビューには各項目の**出どころ**が出るので、
+「なぜこれが入っているのか」を経路まで遡って確認できる。
+
+**現時点の制限**: プロジェクトのグループ所属は画面では表示のみで、
+変更は `PUT /projects/:id/groups` を直接叩く必要がある。
+スコープがどのプロジェクトに当たっているかの一覧も画面には無い。
 
 ## 使い方
 
@@ -154,6 +171,12 @@ erDiagram
     projects ||--o{ apply_history : "記録する"
     roles ||--o{ apply_history : "適用される"
     roles ||--o{ projects : "最後に適用された"
+    groups ||--o{ project_groups : "所属させる"
+    projects ||--o{ project_groups : "所属する"
+    groups ||--o{ group_roles : "配る"
+    roles ||--o{ group_roles : "配られる"
+    scopes ||--o{ scope_roles : "配る"
+    roles ||--o{ scope_roles : "配られる"
 
     roles {
         integer id PK
@@ -218,9 +241,37 @@ erDiagram
         integer id PK
         text path UK
     }
+    groups {
+        integer id PK
+        text name UK
+        text description
+    }
+    project_groups {
+        integer project_id PK "複合主キー"
+        integer group_id PK
+    }
+    group_roles {
+        integer group_id PK "複合主キー"
+        integer role_id PK
+        integer priority
+    }
+    scopes {
+        integer id PK
+        text path UK "正規化済み。前方一致で当たる"
+    }
+    scope_roles {
+        integer scope_id PK "複合主キー"
+        integer role_id PK
+        integer priority
+    }
 ```
 
 `apply_history.managed_json` がこのツールの要になっている。ここに「skillam が何を書いたか」が残っているから、次の適用でユーザーの手動設定と区別して掃除できる。`role_id` が `ON DELETE SET NULL` なのは、ロールを消しても履歴（と掃除に必要な記録）を失わないため。
+
+`groups` / `scopes` はロールをプロジェクトへ届ける経路で、どちらを消しても
+所属と割り当てが外れるだけで、プロジェクトとロール自体は残る。`scopes.path`
+は登録時に正規化される（末尾スラッシュ付きだと、正規化済みの
+`projects.path` と比較しても何にもマッチしないため）。
 
 `secrets` は他のテーブルから外部キーで参照されない。`role_mcp_servers.env_json` の中に文字列として `secret_ref:...` が入り、適用時に名前で引く。この間接参照のおかげで、ロール定義をエクスポートしてもシークレットが付いてこない。
 
@@ -233,6 +284,8 @@ apps/
       catalog/   ローカル環境のスキャン
       roles/     ロール CRUD
       projects/  プロジェクト登録・自動検出
+      groups/    グループと所属（配布経路）
+      scopes/    パス前方一致のスコープ（配布経路）
       apply/     差分計算とマージ適用
       secrets/   キーチェーン連携・暗号化
       db/        スキーマとマイグレーション
@@ -240,7 +293,7 @@ apps/
   web/           Vite + React
     src/
       api/       型付き API クライアント
-      pages/     Dashboard / Roles / Projects / Catalog / Settings
+      pages/     Dashboard / Roles / Groups / Scopes / Projects / Catalog / Settings
       components/
 docs/
   superpowers/
