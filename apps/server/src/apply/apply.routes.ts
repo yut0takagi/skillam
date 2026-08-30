@@ -10,6 +10,7 @@ import {
 import { RoleCompositionConflictError } from './compose-roles.js'
 import type { ProjectRolesRepository } from '../projects/project-roles.repository.js'
 import type { GroupRolesRepository } from '../groups/group-roles.repository.js'
+import type { ScopeRolesRepository } from '../scopes/scope-roles.repository.js'
 import { executeApplyPlan, type ApplyExecutorDeps } from './apply-executor.js'
 import type { ApplyHistoryRepository } from './apply-history.repository.js'
 import { MaterializeConflictError } from './plan-materialize.js'
@@ -20,6 +21,7 @@ export interface ApplyRouteDeps extends ApplyPlannerDeps, ApplyExecutorDeps {
   roles: RolesRepository
   projectRoles: ProjectRolesRepository
   groupRoles: GroupRolesRepository
+  scopeRoles: ScopeRolesRepository
   history: ApplyHistoryRepository
 }
 
@@ -47,13 +49,20 @@ function isPlanConflict(error: unknown): error is Error {
 // is followed, which is what an unattended apply (the CLI, a re-apply) should
 // do.
 //
-// Group bindings come first only so the list reads weakest-to-strongest;
-// composeRoles sorts by origin itself, so the order here does not decide
-// precedence.
+// Bindings are listed weakest-to-strongest (scope, group, direct) only so the
+// list reads in precedence order; composeRoles sorts by origin itself, so the
+// order here does not decide anything.
 function resolveBindings(deps: ApplyRouteDeps, projectId: number, roleId: number | undefined): RoleBindingRef[] {
   if (roleId !== undefined) {
     return [{ roleId, origin: { kind: 'direct' }, priority: 0 }]
   }
+  const fromScopes: RoleBindingRef[] = deps.scopeRoles
+    .listForProject(projectId)
+    .map((bound) => ({
+      roleId: bound.roleId,
+      origin: { kind: 'scope' as const, path: bound.scopePath },
+      priority: bound.priority
+    }))
   const fromGroups: RoleBindingRef[] = deps.groupRoles
     .listForProject(projectId)
     .map((bound) => ({
@@ -64,7 +73,7 @@ function resolveBindings(deps: ApplyRouteDeps, projectId: number, roleId: number
   const direct: RoleBindingRef[] = deps.projectRoles
     .listForProject(projectId)
     .map((bound) => ({ roleId: bound.roleId, origin: { kind: 'direct' as const }, priority: bound.priority }))
-  return [...fromGroups, ...direct]
+  return [...fromScopes, ...fromGroups, ...direct]
 }
 
 function planOrConflict(

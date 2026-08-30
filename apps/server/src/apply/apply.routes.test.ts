@@ -805,3 +805,213 @@ describe('apply routes — group bindings', () => {
     expect(JSON.parse(response.json().settingsFile.after).permissions.allow).toEqual(['Read(*)'])
   })
 })
+
+// 段階3: roles also reach a project because of where it sits on disk. Scopes
+// match by path prefix, so a project acquires them by being placed under one.
+describe('apply routes — scope bindings', () => {
+  let db: Database.Database
+  let app: FastifyInstance
+  let scratchRoot: string
+
+  beforeEach(async () => {
+    db = openDb(':memory:')
+    runMigrations(db)
+    scratchRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-apply-scopes-test-')))
+    app = buildApp(db, new InMemoryKeychainClient())
+  })
+
+  afterEach(() => {
+    fs.rmSync(scratchRoot, { recursive: true, force: true })
+  })
+
+  async function createProjectAt(relativePath: string): Promise<number> {
+    const projectPath = path.join(scratchRoot, relativePath)
+    fs.mkdirSync(projectPath, { recursive: true })
+    return (
+      await app.inject({
+        method: 'POST',
+        url: '/projects',
+        payload: { path: projectPath, name: path.basename(relativePath) }
+      })
+    ).json().id
+  }
+
+  async function createRole(name: string, permissions: { allow?: string[]; deny?: string[] }): Promise<number> {
+    const id = (await app.inject({ method: 'POST', url: '/roles', payload: { name } })).json().id
+    await app.inject({ method: 'PUT', url: `/roles/${id}/permissions`, payload: { permissions } })
+    return id
+  }
+
+  async function createScope(relativePath: string, roleIds: number[]): Promise<number> {
+    const scopePath = path.join(scratchRoot, relativePath)
+    fs.mkdirSync(scopePath, { recursive: true })
+    const id = (await app.inject({ method: 'POST', url: '/scopes', payload: { path: scopePath } })).json().id
+    await app.inject({ method: 'PUT', url: `/scopes/${id}/roles`, payload: { roleIds } })
+    return id
+  }
+
+  it('applies a role bound to a scope containing the project', async () => {
+    const roleId = await createRole('company', { allow: ['Read(*)'] })
+    await createScope('work', [roleId])
+    const projectId = await createProjectAt(path.join('work', 'app'))
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.json().settingsFile.after).permissions.allow).toContain('Read(*)')
+  })
+
+  // The prefix trap, end to end: a project in "workspace" must not pick up the
+  // scope registered for "work".
+  it('does not apply a scope to a sibling directory sharing its prefix', async () => {
+    const roleId = await createRole('company', { allow: ['Read(*)'] })
+    await createScope('work', [roleId])
+    const projectId = await createProjectAt(path.join('workspace', 'app'))
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('combines scope, group and direct bindings', async () => {
+    const scopeRole = await createRole('company', { allow: ['Read(*)'] })
+    const groupRole = await createRole('ts', { allow: ['Edit'] })
+    const directRole = await createRole('personal', { allow: ['Write'] })
+    await createScope('work', [scopeRole])
+    const projectId = await createProjectAt(path.join('work', 'app'))
+
+    const groupId = (await app.inject({ method: 'POST', url: '/groups', payload: { name: 'typescript' } })).json().id
+    await app.inject({ method: 'PUT', url: `/groups/${groupId}/roles`, payload: { roleIds: [groupRole] } })
+    await app.inject({ method: 'PUT', url: `/projects/${projectId}/groups`, payload: { groupIds: [groupId] } })
+    await app.inject({ method: 'PUT', url: `/projects/${projectId}/roles`, payload: { roleIds: [directRole] } })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    const allow = JSON.parse(response.json().settingsFile.after).permissions.allow
+    expect(allow).toContain('Read(*)')
+    expect(allow).toContain('Edit')
+    expect(allow).toContain('Write')
+  })
+
+  // The reason deny outranks precedence at all: an org-wide rule set on a
+  // directory tree cannot be undone by binding a personal role to one project
+  // inside it.
+  it('lets a scope deny override an allow from a direct role', async () => {
+    const scopeRole = await createRole('company', { deny: ['Bash(rm -rf*)'] })
+    const directRole = await createRole('personal', { allow: ['Bash(rm -rf*)', 'Read(*)'] })
+    await createScope('work', [scopeRole])
+    const projectId = await createProjectAt(path.join('work', 'app'))
+    await app.inject({ method: 'PUT', url: `/projects/${projectId}/roles`, payload: { roleIds: [directRole] } })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    const settings = JSON.parse(response.json().settingsFile.after)
+    expect(settings.permissions.allow).not.toContain('Bash(rm -rf*)')
+    expect(settings.permissions.allow).toContain('Read(*)')
+    expect(settings.permissions.deny).toContain('Bash(rm -rf*)')
+  })
+
+  it('applies every scope containing the project', async () => {
+    const outer = await createRole('outer', { allow: ['Read(*)'] })
+    const inner = await createRole('inner', { allow: ['Edit'] })
+    await createScope('work', [outer])
+    await createScope(path.join('work', 'team'), [inner])
+    const projectId = await createProjectAt(path.join('work', 'team', 'app'))
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    const allow = JSON.parse(response.json().settingsFile.after).permissions.allow
+    expect(allow).toContain('Read(*)')
+    expect(allow).toContain('Edit')
+  })
+
+  it('reports the scope as the origin of a skill it contributed', async () => {
+    const roleId = (await app.inject({ method: 'POST', url: '/roles', payload: { name: 'company' } })).json().id
+    const skillDir = path.join(scratchRoot, 'skills', 'drawio')
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# drawio\n')
+    new RoleSkillsRepository(db).replaceForRole(roleId, [{ skillSource: 'user', skillPath: skillDir }])
+    const scopePath = path.join(scratchRoot, 'work')
+    await createScope('work', [roleId])
+    const projectId = await createProjectAt(path.join('work', 'app'))
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.json().origins).toContainEqual({
+      kind: 'skill',
+      name: 'drawio',
+      origin: { kind: 'scope', path: scopePath }
+    })
+  })
+
+  it('ignores scope roles when an explicit roleId is given', async () => {
+    const scopeRole = await createRole('company', { allow: ['Read(*)'] })
+    const explicit = await createRole('explicit', { allow: ['Edit'] })
+    await createScope('work', [scopeRole])
+    const projectId = await createProjectAt(path.join('work', 'app'))
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: { roleId: explicit }
+    })
+
+    const allow = JSON.parse(response.json().settingsFile.after).permissions.allow
+    expect(allow).toContain('Edit')
+    expect(allow).not.toContain('Read(*)')
+  })
+
+  // A scope binding is not a direct one, so the same rule that kept groups out
+  // of last_applied_role_id applies here.
+  it('records no role when the only binding came through a scope', async () => {
+    const roleId = await createRole('company', { allow: ['Read(*)'] })
+    await createScope('work', [roleId])
+    const projectId = await createProjectAt(path.join('work', 'app'))
+
+    const applied = await app.inject({ method: 'POST', url: `/projects/${projectId}/apply`, payload: {} })
+    expect(applied.statusCode).toBe(200)
+
+    expect(new ApplyHistoryRepository(db).listForProject(projectId)[0].roleId).toBeNull()
+    expect(new ProjectsRepository(db).getById(projectId)?.lastAppliedRoleId).toBeNull()
+  })
+
+  it('stops applying a scope’s role once the scope is deleted', async () => {
+    const roleId = await createRole('company', { allow: ['Read(*)'] })
+    const scopeId = await createScope('work', [roleId])
+    const projectId = await createProjectAt(path.join('work', 'app'))
+
+    await app.inject({ method: 'DELETE', url: `/scopes/${scopeId}` })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+})

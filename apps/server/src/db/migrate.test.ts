@@ -41,7 +41,7 @@ describe('runMigrations', () => {
     expect(() => runMigrations(db)).not.toThrow()
 
     const { count } = db.prepare('SELECT COUNT(*) AS count FROM _migrations').get() as { count: number }
-    expect(count).toBe(5)
+    expect(count).toBe(6)
 
     db.close()
   })
@@ -113,6 +113,55 @@ describe('runMigrations', () => {
     db.prepare('DELETE FROM roles WHERE id = 1').run()
 
     expect(db.prepare('SELECT COUNT(*) AS c FROM group_roles').get()).toEqual({ c: 0 })
+
+    db.close()
+  })
+
+  it('creates the scope tables', () => {
+    const db = openDb(':memory:')
+
+    runMigrations(db)
+
+    expect(tableNames(db)).toEqual(expect.arrayContaining(['scopes', 'scope_roles']))
+
+    db.close()
+  })
+
+  it('rejects a duplicate scope path', () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    db.prepare("INSERT INTO scopes (path) VALUES ('/Users/example/work')").run()
+
+    expect(() => db.prepare("INSERT INTO scopes (path) VALUES ('/Users/example/work')").run()).toThrow()
+
+    db.close()
+  })
+
+  it('drops scope bindings when the scope is deleted', () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    db.prepare("INSERT INTO roles (name) VALUES ('dev')").run()
+    db.prepare("INSERT INTO scopes (path) VALUES ('/Users/example/work')").run()
+    db.prepare('INSERT INTO scope_roles (scope_id, role_id) VALUES (1, 1)').run()
+
+    db.prepare('DELETE FROM scopes WHERE id = 1').run()
+
+    expect(db.prepare('SELECT COUNT(*) AS c FROM scope_roles').get()).toEqual({ c: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS c FROM roles').get()).toEqual({ c: 1 })
+
+    db.close()
+  })
+
+  it('drops scope bindings when their role is deleted', () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    db.prepare("INSERT INTO roles (name) VALUES ('dev')").run()
+    db.prepare("INSERT INTO scopes (path) VALUES ('/Users/example/work')").run()
+    db.prepare('INSERT INTO scope_roles (scope_id, role_id) VALUES (1, 1)').run()
+
+    db.prepare('DELETE FROM roles WHERE id = 1').run()
+
+    expect(db.prepare('SELECT COUNT(*) AS c FROM scope_roles').get()).toEqual({ c: 0 })
 
     db.close()
   })

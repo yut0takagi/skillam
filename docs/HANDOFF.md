@@ -11,7 +11,7 @@ skillam は Skill を IAM のように配るツール（**Skill + IAM = skillam*
 | Policy | Role | できている |
 | Principal | Project | できている |
 | Binding | `project_roles` | **段階1で実際に効くようにした** |
-| Group / Folder | グループ / スコープ | グループは**できた**（段階2）。スコープはこれから（段階3） |
+| Group / Folder | グループ / スコープ | **両方できた**（段階2・3） |
 
 設計は [ROLE-COMPOSITION.md](ROLE-COMPOSITION.md) に全部書いてある。
 実装に入る前にそこを読むこと。この文書は進捗と申し送りだけ。
@@ -33,7 +33,7 @@ skillam は Skill を IAM のように配るツール（**Skill + IAM = skillam*
 |---|---|---|
 | 1 | 複数ロール合成 | **完了**（PR #12） |
 | 2 | グループ — `groups` / `project_groups` / `group_roles` | **完了** |
-| 3 | スコープ — `scopes` / `scope_roles`、パス前方一致 | 未着手 |
+| 3 | スコープ — `scopes` / `scope_roles`、パス前方一致 | **完了** |
 | 4 | UI — 群の管理画面、プレビューの出どころ表示 | 未着手 |
 
 段階1で `project_roles` に複数行入れて使えるようになった。2〜3 はその上に
@@ -74,22 +74,41 @@ skillam は Skill を IAM のように配るツール（**Skill + IAM = skillam*
 `composeRoles` には**手を入れていない**。段階1の設計どおり、
 バインディングの経路を足すだけで済んだ。
 
-## 次にやること（段階3: スコープ）
+## 段階3で作ったもの
 
-1. マイグレーション `0006_scopes.sql` — `scopes` / `scope_roles`。
-   スキーマは [ROLE-COMPOSITION.md](ROLE-COMPOSITION.md#スキーマ) にある
-2. `ScopesRepository` / `ScopeRolesRepository`
-3. `resolveBindings` にスコープ経路を足す。**パスの前方一致**で当てる。
-   `composeRoles` は深いパスほど強いものとして既に並べ替える
-   （`compareBindings` を見ること）
-4. スコープ CRUD の API
+`0006_scopes.sql` で `scopes` / `scope_roles` を追加。これで3経路
+（スコープ / グループ / 直接）が揃った。
 
-`composeRoles` は `origin: { kind: 'scope', path }` も既に受け付ける。
-段階2と同じく、合成側に足すものはないはず。
+- `src/lib/paths.ts` の **`isPathWithin`** — 前方一致の境界判定。
+  `startsWith` 一発だと `~/work` が `~/workspace` を巻き込むため、
+  区切り文字を付けて比較する。ルート `/` だけ特別扱い
+- `src/scopes/` — `ScopesRepository` / `ScopeRolesRepository` と CRUD の API
+- `ScopeRolesRepository.listForProject` は**包含判定を SQL でなく
+  TypeScript でやる**。SQL の LIKE では境界を正しく書けず、
+  エスケープも要る。スコープは人が登録したルートなので件数が少なく、
+  全件走査のコストより境界を間違えるリスクのほうが大きい
+- スコープのパスは登録時に正規化する（`projects.path` と同じ規則）。
+  末尾スラッシュ付きで入ると何にもマッチしないスコープができてしまう
 
-**前方一致は文字列比較で書かないこと。** `~/work` が `~/workspace` に
-当たってしまう。`path.sep` 区切りで境界を見るか、`path.relative` が
-`..` で始まらないことを確かめる。
+スコープに **update の API はない**。スコープはパスそのものなので、
+変更は「消して作る」と同義。
+
+`composeRoles` には段階2に続き**手を入れていない**。深いパスほど強い、
+という並べ替えは段階1の `compareBindings` が既に持っている。
+
+## 次にやること（段階4: UI）
+
+段階1から持ち越している2つを、ここで初めて画面に出す。
+
+1. **`ApplyPlan.origins`** — 各項目がどのバインディング由来か。
+   経路が3つになった今、これがないと「なぜこれが入っているのか」が
+   分からない。API は既に返している
+2. **`suppressedAllow`** — deny が allow を落とした記録。
+   `composeRoles` は返すが `ApplyPlan` に載せていない。
+   **まず `ApplyPlan` に載せるところから**
+3. グループ / スコープの管理画面（`/groups`・`/scopes` の CRUD は API 側は済み）
+
+設計書の「プレビューに出すもの」に出力例がある。
 
 ### TDD で進めること
 
@@ -163,7 +182,7 @@ npx tsc --noEmit -p apps/server/tsconfig.json
 npx tsc --noEmit -p apps/web/tsconfig.json
 ```
 
-現在: server 539 / web 124 通過、型は server・web とも clean。
+現在: server 605 / web 124 通過、型は server・web とも clean。
 
 テストはすべて一時ディレクトリとインメモリ DB を使う。実際の `~/.claude` や
 `~/.skillam` には触れない。**この約束は環境変数の優先順位（引数 > 環境変数 >
