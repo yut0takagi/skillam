@@ -38,16 +38,10 @@ Claude Code の設定を、IAM のロールのように管理するローカル�
 | ローカル環境のカタログスキャン | 動作 |
 | シークレットの暗号化保管（macOS キーチェーン + AES-256-GCM） | 動作 |
 | 適用の diff プレビューと実行、適用履歴 | 動作 |
-| 複数ロールの割り当てと合成 | 動作 |
+| 複数ロールの割り当て | UI のみ。適用は 1 ロールずつ |
 | ドリフト検知（UI バッジ + `skillam check`） | 動作 |
 | ロール定義のエクスポート / インポート | 動作 |
-| Electron アプリ化と配布ビルド（署名済み .app / .dmg） | 動作 |
-| プロジェクト群への配布（グループ / スコープ） | 設計済み・未実装 |
-
-複数のロールを1つのプロジェクトに割り当てると、Skill / Agent / MCP / 権限が
-合成されて適用される。`deny` は `allow` に優先し、別々のロールが同じ名前で
-違うものを指していれば適用を中止する。詳細は
-[docs/ROLE-COMPOSITION.md](docs/ROLE-COMPOSITION.md)。
+| Electron アプリ化 | 起動する。配布用のビルド（.app / .dmg）は未対応 |
 
 ## 使い方
 
@@ -283,10 +277,6 @@ npx tsc --noEmit -p apps/web/tsconfig.json
 ```
 
 テストはすべて一時ディレクトリとインメモリ DB を使う。実際の `~/.claude` や `~/.skillam` には触れない。
-
-ルートから `npx vitest run` を直接叩くと web の jsdom 設定が読まれず大量に落ちる。`npm test` を使う。
-
-作業中の設計と進捗は [docs/ROLE-COMPOSITION.md](docs/ROLE-COMPOSITION.md) と [docs/HANDOFF.md](docs/HANDOFF.md)。
 
 ## ライセンス
 
