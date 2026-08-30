@@ -9,8 +9,8 @@ skillam は Skill を IAM のように配る。この文書は「どの Skill �
 |---|---|---|
 | Policy | Role | ある |
 | Principal | Project | ある |
-| Binding | `project_roles`（`priority` 付き） | テーブルはあるが**適用側が使っていない** |
-| Group / Folder | — | ない |
+| Binding | `project_roles`（`priority` 付き） | 段階1で適用側が使うようになった |
+| Group / Folder | `groups` / `project_groups` / `group_roles` | グループは段階2で入った。スコープは段階3 |
 
 `buildApplyPlan(deps, project, roleId)` は単一の `roleId` しか取らない。
 `project_roles` は複数行持てるのに、適用は1ロールで走る。API も
@@ -186,7 +186,7 @@ deny によって allow から落ちたものは、落ちた事実を明示す�
 
 1. **複数ロール合成** — `composeRoles` と衝突検出、`project_roles` の
    複数行を実際に適用。スキーマ変更なし
-2. **グループ** — `groups` / `project_groups` / `group_roles`
+2. **グループ** — `groups` / `project_groups` / `group_roles`（完了）
 3. **スコープ** — `scopes` / `scope_roles`、パス前方一致の解決
 4. **UI** — 群の管理画面と、プレビューの出どころ表示
 

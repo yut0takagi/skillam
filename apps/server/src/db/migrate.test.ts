@@ -41,7 +41,7 @@ describe('runMigrations', () => {
     expect(() => runMigrations(db)).not.toThrow()
 
     const { count } = db.prepare('SELECT COUNT(*) AS count FROM _migrations').get() as { count: number }
-    expect(count).toBe(4)
+    expect(count).toBe(5)
 
     db.close()
   })
@@ -56,6 +56,63 @@ describe('runMigrations', () => {
       expect.arrayContaining(['last_applied_role_id', 'last_applied_at'])
     )
     expect(columnNames(db, 'role_agents')).toContain('source_path')
+
+    db.close()
+  })
+
+  it('creates the group tables', () => {
+    const db = openDb(':memory:')
+
+    runMigrations(db)
+
+    expect(tableNames(db)).toEqual(
+      expect.arrayContaining(['groups', 'project_groups', 'group_roles'])
+    )
+
+    db.close()
+  })
+
+  it('rejects a duplicate group name', () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    db.prepare("INSERT INTO groups (name) VALUES ('typescript')").run()
+
+    expect(() => db.prepare("INSERT INTO groups (name) VALUES ('typescript')").run()).toThrow()
+
+    db.close()
+  })
+
+  it('drops memberships and bindings when a group is deleted', () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    db.prepare("INSERT INTO roles (name) VALUES ('dev')").run()
+    db.prepare("INSERT INTO projects (path, name) VALUES ('/tmp/x', 'x')").run()
+    db.prepare("INSERT INTO groups (name) VALUES ('typescript')").run()
+    db.prepare('INSERT INTO project_groups (project_id, group_id) VALUES (1, 1)').run()
+    db.prepare('INSERT INTO group_roles (group_id, role_id) VALUES (1, 1)').run()
+
+    db.prepare('DELETE FROM groups WHERE id = 1').run()
+
+    expect(db.prepare('SELECT COUNT(*) AS c FROM project_groups').get()).toEqual({ c: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS c FROM group_roles').get()).toEqual({ c: 0 })
+    // The role and project themselves are untouched — a group is a binding
+    // path, not an owner.
+    expect(db.prepare('SELECT COUNT(*) AS c FROM roles').get()).toEqual({ c: 1 })
+    expect(db.prepare('SELECT COUNT(*) AS c FROM projects').get()).toEqual({ c: 1 })
+
+    db.close()
+  })
+
+  it('drops group bindings when their role is deleted', () => {
+    const db = openDb(':memory:')
+    runMigrations(db)
+    db.prepare("INSERT INTO roles (name) VALUES ('dev')").run()
+    db.prepare("INSERT INTO groups (name) VALUES ('typescript')").run()
+    db.prepare('INSERT INTO group_roles (group_id, role_id) VALUES (1, 1)').run()
+
+    db.prepare('DELETE FROM roles WHERE id = 1').run()
+
+    expect(db.prepare('SELECT COUNT(*) AS c FROM group_roles').get()).toEqual({ c: 0 })
 
     db.close()
   })

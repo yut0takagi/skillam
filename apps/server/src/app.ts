@@ -21,6 +21,10 @@ import { MasterKeyProvider } from './secrets/master-key-provider.js'
 import { SecretsRepository } from './secrets/secrets.repository.js'
 import { secretsRoutes } from './secrets/secrets.routes.js'
 import { catalogRoutes } from './catalog/catalog.routes.js'
+import { GroupsRepository } from './groups/groups.repository.js'
+import { GroupRolesRepository } from './groups/group-roles.repository.js'
+import { ProjectGroupsRepository } from './groups/project-groups.repository.js'
+import { groupsRoutes } from './groups/groups.routes.js'
 import { ApplyHistoryRepository } from './apply/apply-history.repository.js'
 import { applyRoutes } from './apply/apply.routes.js'
 import { driftRoutes } from './apply/drift.routes.js'
@@ -166,10 +170,19 @@ export function buildApp(
     claudeJsonPath
   })
 
+  app.register(groupsRoutes, {
+    groups: new GroupsRepository(db),
+    groupRoles: new GroupRolesRepository(db),
+    projectGroups: new ProjectGroupsRepository(db),
+    projects: new ProjectsRepository(db),
+    roles: new RolesRepository(db)
+  })
+
   app.register(applyRoutes, {
     projects: new ProjectsRepository(db),
     roles: new RolesRepository(db),
     projectRoles: new ProjectRolesRepository(db),
+    groupRoles: new GroupRolesRepository(db),
     skills: new RoleSkillsRepository(db),
     agents: new RoleAgentsRepository(db),
     mcpServers: new RoleMcpServersRepository(db),
