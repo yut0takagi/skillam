@@ -303,6 +303,7 @@ export function buildApplyPlanForRoles(
     })),
     managed: {
       mcpServers: mcpResult.managedServers,
+      mcpDefinitions: mcpResult.managedDefinitions,
       materialized: materializeResult.managed,
       permissionAllow: settingsResult.managedAllow,
       permissionDeny: settingsResult.managedDeny

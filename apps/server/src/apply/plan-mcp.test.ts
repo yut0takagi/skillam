@@ -91,4 +91,55 @@ describe('planMcp', () => {
 
     expect(result.mcpJson.mcpServers).toEqual({ github: { command: 'npx', env: { TOKEN: 'new' } } })
   })
+
+  it('records the definitions it wrote for its own servers', () => {
+    const result = planMcp({
+      currentMcpJson: { mcpServers: { handmade: { command: 'user-tool' } } },
+      roleServers: [{ name: 'github', command: 'npx', env: { TOKEN: 'secret_ref:mcp:github:TOKEN' } }],
+      previous: EMPTY_MANAGED_STATE
+    })
+
+    // The user's own server is written back to disk untouched but must not
+    // enter the record: drift detection only reports what skillam wrote.
+    expect(result.managedDefinitions).toEqual({
+      github: { command: 'npx', envKeys: ['TOKEN'] }
+    })
+  })
+
+  // The recorded definition must not alias the object handed to the executor.
+  // If it did, resolveSecretRefs (or any later in-place edit) could rewrite
+  // the record's `secret_ref:` placeholder into a decrypted value, putting a
+  // plaintext secret into apply_history and breaking the comparison that
+  // drift detection relies on.
+  it('does not share mutable state between the record and the written json', () => {
+    const result = planMcp({
+      currentMcpJson: {},
+      roleServers: [{ name: 'github', command: 'npx', env: { TOKEN: 'secret_ref:mcp:github:TOKEN' } }],
+      previous: EMPTY_MANAGED_STATE
+    })
+
+    const written = (result.mcpJson.mcpServers as Record<string, Record<string, unknown>>).github
+    written.env = { TOKEN: 'decrypted-value' }
+    written.command = 'tampered'
+
+    expect(result.managedDefinitions).toEqual({
+      github: { command: 'npx', envKeys: ['TOKEN'] }
+    })
+  })
+
+  // Role env values are raw unless they came through the catalog import path,
+  // and this record is persisted to apply_history — so values must never
+  // appear in it, whatever they look like.
+  it('records env key names without their values', () => {
+    const result = planMcp({
+      currentMcpJson: {},
+      roleServers: [
+        { name: 'github', command: { command: 'npx', env: { EMBEDDED: 'raw-embedded' } }, env: {} }
+      ],
+      previous: EMPTY_MANAGED_STATE
+    })
+
+    expect(JSON.stringify(result.managedDefinitions)).not.toContain('raw-embedded')
+    expect(result.managedDefinitions).toEqual({ github: { command: 'npx', envKeys: ['EMBEDDED'] } })
+  })
 })
