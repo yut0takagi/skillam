@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "npm run dev --workspace @skillam/server & npm run dev --workspace @skillam/web",
     "test": "npm run test --workspaces --if-present",
-    "dev:app": "npm run build -w @skillam/server && npm run build -w @skillam/web && npm run build -w @skillam/desktop && npm run start -w @skillam/desktop"
+    "dev:app": "npm run build -w @skillam/server && npm run build -w @skillam/web && npm run build -w @skillam/desktop && npm run start -w @skillam/desktop",
+    "dist": "npm run dist -w @skillam/desktop",
+    "pack": "npm run pack -w @skillam/desktop"
   }
 }

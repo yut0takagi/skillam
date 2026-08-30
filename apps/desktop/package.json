@@ -7,11 +7,21 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "electron .",
-    "rebuild": "electron-rebuild -f -w better-sqlite3"
+    "build:all": "npm run build -w @skillam/server && npm run build -w @skillam/web && npm run build -w @skillam/desktop",
+    "pack": "npm run build:all && electron-builder --dir",
+    "dist": "npm run build:all && electron-builder"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.2.0",
-    "electron": "^44.0.0",
+    "@electron/notarize": "^2.5.0",
+    "electron": "44.0.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.3"
+  },
+  "description": "Manage Claude Code Skills, MCP servers, subagents and permissions as IAM-like roles.",
+  "author": "Yuto Takagi",
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^5.0.0"
   }
 }

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- macOS app icons sit inside a smaller safe area than a favicon, so the
+       key is inset rather than filling the tile edge to edge. -->
+  <rect width="1024" height="1024" rx="228" fill="#1A1D17"/>
+  <g transform="translate(160,160) scale(21.5)">
+    <path d="M20.5 8a5.5 5.5 0 0 0-5.24 7.2L8 22.46V26h3.54l1.6-1.6v-2.02h2.02l1.72-1.72v-2.02h1.4l1.02-1.02A5.5 5.5 0 1 0 20.5 8Zm1.9 5.6a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2Z" fill="#C87137"/>
+  </g>
+</svg>
