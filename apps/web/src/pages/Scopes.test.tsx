@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Scopes } from './Scopes.js'
-import type { Role, Scope } from '../api/types.js'
+import type { Project, Role, Scope } from '../api/types.js'
 
 function stubFetch(handler: (url: string, init?: RequestInit) => { status: number; body: unknown }) {
   vi.stubGlobal(
@@ -152,4 +152,80 @@ describe('Scopes', () => {
     await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined())
     expect(screen.getByText(/ロールが届かなくなります/)).toBeDefined()
   })
+
+  // A scope binds by path, so its reach is invisible: the list shows a path
+  // and some roles, and nothing says which projects that actually covers.
+  it('lists the projects a scope reaches', async () => {
+    const reached: Project[] = [
+      {
+        id: 5,
+        path: '/Users/dev/work/app',
+        name: 'app',
+        autoDetected: true,
+        excluded: false,
+        lastAppliedRoleId: null,
+        lastAppliedAt: null,
+        createdAt: 'x',
+        updatedAt: 'x'
+      }
+    ]
+    stubFetch((url) => {
+      if (url.includes('/scopes/1/projects')) {
+        return { status: 200, body: reached }
+      }
+      return baseHandler()(url)
+    })
+    renderScopes()
+
+    await userEvent.click(await screen.findByRole('button', { name: '対象PJT' }))
+
+    await waitFor(() => expect(screen.getByText('app')).toBeDefined())
+    expect(screen.getByText('/Users/dev/work/app')).toBeDefined()
+  })
+
+  // An excluded project still matches the path. Hiding it turns "excluded on
+  // purpose" into "missing for no visible reason".
+  it('marks a reached project that is excluded', async () => {
+    const reached: Project[] = [
+      {
+        id: 5,
+        path: '/Users/dev/work/app',
+        name: 'app',
+        autoDetected: true,
+        excluded: true,
+        lastAppliedRoleId: null,
+        lastAppliedAt: null,
+        createdAt: 'x',
+        updatedAt: 'x'
+      }
+    ]
+    stubFetch((url) => {
+      if (url.includes('/scopes/1/projects')) {
+        return { status: 200, body: reached }
+      }
+      return baseHandler()(url)
+    })
+    renderScopes()
+
+    await userEvent.click(await screen.findByRole('button', { name: '対象PJT' }))
+
+    await waitFor(() => expect(screen.getByText('除外')).toBeDefined())
+  })
+
+  it('says so when a scope reaches nothing', async () => {
+    stubFetch((url) => {
+      if (url.includes('/scopes/1/projects')) {
+        return { status: 200, body: [] }
+      }
+      return baseHandler()(url)
+    })
+    renderScopes()
+
+    await userEvent.click(await screen.findByRole('button', { name: '対象PJT' }))
+
+    await waitFor(() =>
+      expect(screen.getByText('このスコープに当たるプロジェクトはありません。')).toBeDefined()
+    )
+  })
+
 })

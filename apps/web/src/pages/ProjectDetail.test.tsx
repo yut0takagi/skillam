@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectDetail } from './ProjectDetail.js'
@@ -519,4 +520,86 @@ describe('ProjectDetail', () => {
     const previewButton = await screen.findByRole('button', { name: 'プレビュー' })
     expect((previewButton as HTMLButtonElement).disabled).toBe(false)
   })
+
+  // Group membership was display-only: the API existed from the start but no
+  // screen called it, so the whole group binding path was unreachable without
+  // hand-crafting a PUT.
+  it('saves group membership from the sidebar', async () => {
+    const requests: { url: string; body: unknown }[] = []
+    stubFetch((url, init) => {
+      if (url.endsWith('/groups') && !url.includes('/projects/')) {
+        return {
+          status: 200,
+          body: [
+            { id: 3, name: 'typescript', description: '', createdAt: 'x', updatedAt: 'x' },
+            { id: 4, name: 'infra', description: '', createdAt: 'x', updatedAt: 'x' }
+          ]
+        }
+      }
+      if (url.includes('/projects/1/groups') && init?.method === 'PUT') {
+        requests.push({ url, body: JSON.parse(String(init.body)) })
+        return { status: 200, body: [] }
+      }
+      if (url.includes('/projects/1/groups')) {
+        return { status: 200, body: [{ id: 3, name: 'typescript', description: '', createdAt: 'x' }] }
+      }
+      return baseHandler()(url, init)
+    })
+    renderDetail()
+
+    const infra = await screen.findByLabelText('infra')
+    await userEvent.click(infra)
+    await userEvent.click(screen.getByRole('button', { name: 'グループを保存' }))
+
+    await waitFor(() => expect(requests.length).toBe(1))
+    expect(requests[0].body).toEqual({ groupIds: [3, 4] })
+  })
+
+  it('starts with the groups the project already belongs to checked', async () => {
+    stubFetch((url, init) => {
+      if (url.endsWith('/groups') && !url.includes('/projects/')) {
+        return {
+          status: 200,
+          body: [
+            { id: 3, name: 'typescript', description: '', createdAt: 'x', updatedAt: 'x' },
+            { id: 4, name: 'infra', description: '', createdAt: 'x', updatedAt: 'x' }
+          ]
+        }
+      }
+      if (url.includes('/projects/1/groups')) {
+        return { status: 200, body: [{ id: 4, name: 'infra', description: '', createdAt: 'x' }] }
+      }
+      return baseHandler()(url, init)
+    })
+    renderDetail()
+
+    const infra = (await screen.findByLabelText('infra')) as HTMLInputElement
+    await waitFor(() => expect(infra.checked).toBe(true))
+    expect((screen.getByLabelText('typescript') as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('reports a failure to save group membership', async () => {
+    stubFetch((url, init) => {
+      if (url.endsWith('/groups') && !url.includes('/projects/')) {
+        return {
+          status: 200,
+          body: [{ id: 3, name: 'typescript', description: '', createdAt: 'x', updatedAt: 'x' }]
+        }
+      }
+      if (url.includes('/projects/1/groups') && init?.method === 'PUT') {
+        return { status: 400, body: { error: 'group 3 not found' } }
+      }
+      if (url.includes('/projects/1/groups')) {
+        return { status: 200, body: [] }
+      }
+      return baseHandler()(url, init)
+    })
+    renderDetail()
+
+    await userEvent.click(await screen.findByLabelText('typescript'))
+    await userEvent.click(screen.getByRole('button', { name: 'グループを保存' }))
+
+    await waitFor(() => expect(screen.getByText('group 3 not found')).toBeDefined())
+  })
+
 })

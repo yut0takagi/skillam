@@ -1,5 +1,5 @@
 import { apiRequest } from './client.js'
-import type { Scope, ScopeRole } from './types.js'
+import type { Project, Scope, ScopeRole } from './types.js'
 
 export const listScopes = () => apiRequest<Scope[]>('/scopes')
 
@@ -15,3 +15,5 @@ export const setScopeRoles = (id: number, roleIds: number[]) =>
     method: 'PUT',
     body: JSON.stringify({ roleIds })
   })
+
+export const listScopeProjects = (id: number) => apiRequest<Project[]>(`/scopes/${id}/projects`)
