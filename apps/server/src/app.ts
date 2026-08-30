@@ -25,6 +25,9 @@ import { GroupsRepository } from './groups/groups.repository.js'
 import { GroupRolesRepository } from './groups/group-roles.repository.js'
 import { ProjectGroupsRepository } from './groups/project-groups.repository.js'
 import { groupsRoutes } from './groups/groups.routes.js'
+import { ScopesRepository } from './scopes/scopes.repository.js'
+import { ScopeRolesRepository } from './scopes/scope-roles.repository.js'
+import { scopesRoutes } from './scopes/scopes.routes.js'
 import { ApplyHistoryRepository } from './apply/apply-history.repository.js'
 import { applyRoutes } from './apply/apply.routes.js'
 import { driftRoutes } from './apply/drift.routes.js'
@@ -178,11 +181,18 @@ export function buildApp(
     roles: new RolesRepository(db)
   })
 
+  app.register(scopesRoutes, {
+    scopes: new ScopesRepository(db),
+    scopeRoles: new ScopeRolesRepository(db),
+    roles: new RolesRepository(db)
+  })
+
   app.register(applyRoutes, {
     projects: new ProjectsRepository(db),
     roles: new RolesRepository(db),
     projectRoles: new ProjectRolesRepository(db),
     groupRoles: new GroupRolesRepository(db),
+    scopeRoles: new ScopeRolesRepository(db),
     skills: new RoleSkillsRepository(db),
     agents: new RoleAgentsRepository(db),
     mcpServers: new RoleMcpServersRepository(db),

@@ -10,7 +10,7 @@ skillam は Skill を IAM のように配る。この文書は「どの Skill �
 | Policy | Role | ある |
 | Principal | Project | ある |
 | Binding | `project_roles`（`priority` 付き） | 段階1で適用側が使うようになった |
-| Group / Folder | `groups` / `project_groups` / `group_roles` | グループは段階2で入った。スコープは段階3 |
+| Group / Folder | `groups` / `project_groups` / `group_roles` / `scopes` / `scope_roles` | 段階2・3で入った |
 
 `buildApplyPlan(deps, project, roleId)` は単一の `roleId` しか取らない。
 `project_roles` は複数行持てるのに、適用は1ロールで走る。API も
@@ -137,6 +137,16 @@ CREATE TABLE scope_roles (
 適用（何を配るか）は別の関心事で、「探すが配らない」ディレクトリも
 「配るが探さない」ディレクトリもありうる。
 
+### 前方一致の境界（段階3で実装）
+
+パスの前方一致は `startsWith` の一発では書けない。`~/work` が
+`~/workspace` を巻き込む。`lib/paths.ts` の `isPathWithin` が区切り文字を
+付けて比較しており、スコープの判定は必ずこれを通す。
+
+判定は SQL ではなく TypeScript でやる。LIKE では境界を正しく表現できず、
+パスのエスケープも要るため。スコープは人が登録したルートなので
+件数が少なく、全件走査は問題にならない。
+
 ## 適用エンジンの改修
 
 `buildApplyPlan` は前半で「1ロールから素材を集める」、後半で「合成して
@@ -187,7 +197,7 @@ deny によって allow から落ちたものは、落ちた事実を明示す�
 1. **複数ロール合成** — `composeRoles` と衝突検出、`project_roles` の
    複数行を実際に適用。スキーマ変更なし
 2. **グループ** — `groups` / `project_groups` / `group_roles`（完了）
-3. **スコープ** — `scopes` / `scope_roles`、パス前方一致の解決
+3. **スコープ** — `scopes` / `scope_roles`、パス前方一致の解決（完了）
 4. **UI** — 群の管理画面と、プレビューの出どころ表示
 
 1 が終われば `project_roles` に複数行入れて使える。2〜4 はその上に載る。

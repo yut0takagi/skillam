@@ -1,0 +1,12 @@
+CREATE TABLE scopes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  path TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE scope_roles (
+  scope_id INTEGER NOT NULL REFERENCES scopes(id) ON DELETE CASCADE,
+  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  priority INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (scope_id, role_id)
+);
