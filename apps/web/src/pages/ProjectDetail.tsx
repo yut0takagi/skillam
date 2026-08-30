@@ -29,6 +29,7 @@ import type {
 const DRIFT_KIND_LABEL: Record<string, string> = {
   'permission-missing': '権限の欠落',
   'mcp-server-missing': 'MCPサーバーの欠落',
+  'mcp-server-changed': 'MCPサーバー定義の変更',
   'materialized-missing': '配置ファイルの欠落',
   'materialized-changed': '配置ファイルの変更',
   'config-unreadable': '設定ファイルが読めません'

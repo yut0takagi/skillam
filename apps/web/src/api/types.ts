@@ -168,6 +168,7 @@ export interface ApplySuccess {
 export type DriftKind =
   | 'permission-missing'
   | 'mcp-server-missing'
+  | 'mcp-server-changed'
   | 'materialized-missing'
   | 'materialized-changed'
   | 'config-unreadable'
