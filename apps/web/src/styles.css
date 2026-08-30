@@ -532,3 +532,45 @@ h2 {
   z-index: 1;
   background: var(--surface);
 }
+
+/* --- バインディングの出どころ（段階4） ---------------------------------- */
+/* 経路が3つになったため、各項目が「なぜ入っているのか」を出す。
+   意匠は .op 系に合わせ、色は経路の区別だけに使う。 */
+
+.origins { display: flex; flex-direction: column; gap: var(--s1); }
+
+.origin-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: var(--s3);
+  align-items: baseline;
+  padding: var(--s1) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.origin-row:last-child { border-bottom: none; }
+
+.origin-kind { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--ink-dim); }
+.origin-name { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+
+.origin-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--ink-mid);
+}
+/* スコープはパス由来＝誰も個別に選んでいない経路なので、直接割り当てと
+   見分けがつくようにする。 */
+.origin-scope { color: var(--warn); }
+.origin-group { color: var(--accent); }
+.origin-direct { color: var(--ink-dim); }
+
+.binding-list { list-style: none; margin: var(--s2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.binding-list li { display: flex; gap: var(--s3); align-items: baseline; font-size: 13px; }
+
+.field-label {
+  font-size: 11px; font-weight: 600; margin: 0 0 var(--s1);
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim);
+}
+
+.check-list { list-style: none; margin: var(--s2) 0; padding: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.check-list label { display: flex; gap: var(--s2); align-items: center; font-size: 13px; }
