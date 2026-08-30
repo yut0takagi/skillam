@@ -114,10 +114,33 @@ export interface ManagedState {
   permissionDeny: string[]
 }
 
+// Where a role reached this project from. An item can arrive without anyone
+// having chosen it for this project specifically, so the preview names the
+// path it came through.
+export type BindingOrigin =
+  | { kind: 'scope'; path: string }
+  | { kind: 'group'; name: string }
+  | { kind: 'direct' }
+
+export interface PlanOrigin {
+  kind: 'skill' | 'agent' | 'mcpServer'
+  name: string
+  origin: BindingOrigin
+}
+
+export interface SuppressedAllow {
+  entry: string
+  deniedBy: BindingOrigin
+}
+
 export interface ApplyPlan {
   projectId: number
   projectPath: string
-  roleId: number
+  // null when several bindings were composed, or when the only binding came
+  // through a group or scope rather than a direct assignment.
+  roleId: number | null
+  origins: PlanOrigin[]
+  suppressedAllow: SuppressedAllow[]
   settingsFile: FileChange
   mcpFile: FileChange
   mcpAfterObject: Record<string, unknown>
@@ -171,4 +194,27 @@ export interface RoleExportPayload {
   mcpServers: Array<{ name: string; command: unknown; env: Record<string, string> }>
   agents: Array<{ name: string; markdownBody: string; source: string; sourcePath?: string }>
   permissions: unknown
+}
+
+export interface Group {
+  id: number
+  name: string
+  description: string
+  createdAt: string
+}
+
+export interface GroupRole {
+  roleId: number
+  priority: number
+}
+
+export interface Scope {
+  id: number
+  path: string
+  createdAt: string
+}
+
+export interface ScopeRole {
+  roleId: number
+  priority: number
 }

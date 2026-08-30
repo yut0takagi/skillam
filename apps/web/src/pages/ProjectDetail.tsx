@@ -5,6 +5,7 @@ import {
   getProject,
   getProjectDrift,
   listApplyHistory,
+  listProjectGroups,
   listProjectRoles,
   previewApply,
   setProjectRoles
@@ -13,7 +14,14 @@ import { listRoles } from '../api/roles.js'
 import { useApi } from '../lib/useApi.js'
 import { DiffView } from '../components/DiffView.js'
 import type { ApiErrorKind } from '../api/client.js'
-import type { ApplyPlan, ManagedState, MaterializeOperation, Role } from '../api/types.js'
+import type {
+  ApplyPlan,
+  BindingOrigin,
+  ManagedState,
+  MaterializeOperation,
+  PlanOrigin,
+  Role
+} from '../api/types.js'
 
 const DRIFT_KIND_LABEL: Record<string, string> = {
   'permission-missing': '権限の欠落',
@@ -40,6 +48,30 @@ function formatDate(value: string | null): string {
     return '-'
   }
   return new Date(value).toLocaleString('ja-JP')
+}
+
+// The preview is the only place someone can see why an item is present. With
+// three binding paths, an unexplained entry is the difference between a tool
+// someone chose and one that arrived because of where the directory sits.
+function originLabel(origin: BindingOrigin): string {
+  switch (origin.kind) {
+    case 'scope':
+      return `スコープ ${origin.path}`
+    case 'group':
+      return `グループ ${origin.name}`
+    case 'direct':
+      return '直接'
+  }
+}
+
+function originClass(origin: BindingOrigin): string {
+  return `origin-${origin.kind}`
+}
+
+const ORIGIN_KIND_LABEL: Record<PlanOrigin['kind'], string> = {
+  skill: 'Skill',
+  agent: 'Agent',
+  mcpServer: 'MCP'
 }
 
 function operationDetail(op: MaterializeOperation): string {
@@ -72,12 +104,11 @@ export function ProjectDetail() {
   const projectRolesApi = useApi(useCallback(() => listProjectRoles(projectId), [projectId]))
   const historyApi = useApi(useCallback(() => listApplyHistory(projectId), [projectId]))
   const driftApi = useApi(useCallback(() => getProjectDrift(projectId), [projectId]))
+  const projectGroupsApi = useApi(useCallback(() => listProjectGroups(projectId), [projectId]))
 
   const [checkedRoleIds, setCheckedRoleIds] = useState<number[]>([])
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-
-  const [applyRoleId, setApplyRoleId] = useState<number | null>(null)
 
   const [plan, setPlan] = useState<ApplyPlan | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -94,6 +125,10 @@ export function ProjectDetail() {
   const roles = rolesApi.data ?? []
   const project = projectApi.data ?? null
   const history = historyApi.data ?? []
+  // Defensive: a non-array here (an error body shaped differently than
+  // expected) would otherwise throw during render and blank the whole page,
+  // hiding the preview and history along with it.
+  const projectGroups = Array.isArray(projectGroupsApi.data) ? projectGroupsApi.data : []
 
   const roleNameById = useMemo(() => {
     const map = new Map<number, string>()
@@ -114,15 +149,6 @@ export function ProjectDetail() {
     setCheckedRoleIds(assignedRoleIds)
   }, [assignedRoleIds])
 
-  const effectiveRoleId =
-    assignedRoleIds.length === 0
-      ? null
-      : assignedRoleIds.length === 1
-        ? assignedRoleIds[0]
-        : applyRoleId !== null && assignedRoleIds.includes(applyRoleId)
-          ? applyRoleId
-          : assignedRoleIds[0]
-
   const latestSuccessManaged = useMemo(() => {
     const success = history.find((entry) => entry.status === 'success')
     return success ? success.managed : null
@@ -133,29 +159,23 @@ export function ProjectDetail() {
   }, [history])
 
   const handlePreview = useCallback(async () => {
-    if (effectiveRoleId === null) {
-      return
-    }
     setPreviewLoading(true)
     setPreviewError(null)
     setPlan(null)
     setApplyResult(null)
-    const result = await previewApply(projectId, effectiveRoleId)
+    const result = await previewApply(projectId)
     setPreviewLoading(false)
     if (!result.ok) {
       setPreviewError({ kind: result.kind, message: result.message })
       return
     }
     setPlan(result.data)
-  }, [projectId, effectiveRoleId])
+  }, [projectId])
 
   const handleApply = useCallback(async () => {
-    if (effectiveRoleId === null) {
-      return
-    }
     setApplyLoading(true)
     setApplyResult(null)
-    const result = await applyRole(projectId, effectiveRoleId)
+    const result = await applyRole(projectId)
     setApplyLoading(false)
     if (!result.ok) {
       if (result.kind === 'conflict') {
@@ -170,7 +190,7 @@ export function ProjectDetail() {
     setApplyResult({ kind: 'success' })
     historyApi.reload()
     projectApi.reload()
-  }, [projectId, effectiveRoleId, historyApi, projectApi])
+  }, [projectId, historyApi, projectApi])
 
   const handleToggleRole = useCallback((roleId: number) => {
     setCheckedRoleIds((current) =>
@@ -214,8 +234,10 @@ export function ProjectDetail() {
     )
   }
 
-  const hasAssignedRole = effectiveRoleId !== null
-  const previewButtonDisabled = !hasAssignedRole || previewLoading
+  // Preview is always available: scope bindings match by path and are not
+  // visible from here, so the client cannot tell whether anything will reach
+  // the project. The server answers that — a 400 means nothing is bound.
+  const previewButtonDisabled = previewLoading
   const showApplyButton = plan !== null && previewError === null
   const applyButtonDisabled = applyLoading
 
@@ -227,30 +249,30 @@ export function ProjectDetail() {
         <p className="page-note">
           <code>{project.path}</code>
         </p>
-        {assignedRoleIds.length >= 2 ? (
-          <div className="field" style={{ marginTop: 'var(--s3, 12px)' }}>
-            <label htmlFor="apply-role-select">適用するロール</label>
-            <select
-              id="apply-role-select"
-              aria-label="適用するロール"
-              value={effectiveRoleId ?? ''}
-              onChange={(event) => setApplyRoleId(Number(event.target.value))}
-            >
-              {assignedRoleIds.map((roleId) => (
-                <option key={roleId} value={roleId}>
-                  {roleNameById.get(roleId) ?? `ロール #${roleId}`}
-                </option>
+        <div className="field" style={{ marginTop: 'var(--s3, 12px)' }}>
+          <p className="field-label">適用対象</p>
+          {assignedRoleIds.length === 0 && projectGroups.length === 0 ? (
+            <p className="hint">このプロジェクトに届くロールはありません。</p>
+          ) : (
+            <ul className="binding-list">
+              {projectGroups.map((group) => (
+                <li key={`group-${group.id}`}>
+                  <span className="origin-tag origin-group">グループ</span>
+                  <span>{group.name}</span>
+                </li>
               ))}
-            </select>
-            <p className="hint">
-              適用は1ロールずつです。複数ロールの合成は未対応のため、適用するロールを選んでください。
-            </p>
-          </div>
-        ) : assignedRoleIds.length === 1 ? (
-          <p className="hint" style={{ marginTop: 'var(--s3, 12px)' }}>
-            適用対象: {roleNameById.get(assignedRoleIds[0]) ?? `ロール #${assignedRoleIds[0]}`}
+              {assignedRoleIds.map((roleId) => (
+                <li key={`direct-${roleId}`}>
+                  <span className="origin-tag origin-direct">直接</span>
+                  <span>{roleNameById.get(roleId) ?? `ロール #${roleId}`}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="hint">
+            スコープ（パス一致）で届くロールもあります。実際に何が入るかはプレビューで確認してください。
           </p>
-        ) : null}
+        </div>
         <div className="row" style={{ marginTop: 'var(--s3, 12px)' }}>
           <button type="button" className="btn" onClick={handlePreview} disabled={previewButtonDisabled}>
             プレビュー
@@ -266,9 +288,7 @@ export function ProjectDetail() {
             </button>
           ) : null}
         </div>
-        {!hasAssignedRole ? (
-          <p className="hint">プレビューを実行するには、先にロールを割り当ててください。</p>
-        ) : null}
+
       </div>
 
       <div className="body split">
@@ -282,6 +302,47 @@ export function ProjectDetail() {
               <DiffView change={plan.mcpFile} />
               <p className="hint">
                 シークレットは <code>secret_ref:</code> のまま表示されます。実際の値は書き込み直前にのみ復号されます。
+              </p>
+            </section>
+          ) : null}
+
+          {plan && plan.origins && plan.origins.length > 0 ? (
+            <section>
+              <div className="sec-head">
+                <h2>出どころ</h2>
+              </div>
+              <div className="origins">
+                {plan.origins.map((entry, index) => (
+                  <div className="origin-row" key={`${entry.kind}-${entry.name}-${index}`}>
+                    <span className="origin-kind">{ORIGIN_KIND_LABEL[entry.kind]}</span>
+                    <span className="origin-name">{entry.name}</span>
+                    <span className={`origin-tag ${originClass(entry.origin)}`}>
+                      {originLabel(entry.origin)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {plan && plan.suppressedAllow && plan.suppressedAllow.length > 0 ? (
+            <section>
+              <div className="sec-head">
+                <h2>deny で落ちた許可</h2>
+              </div>
+              <div className="origins">
+                {plan.suppressedAllow.map((entry, index) => (
+                  <div className="origin-row" key={`${entry.entry}-${index}`}>
+                    <span className="origin-kind">許可</span>
+                    <span className="origin-name">{entry.entry}</span>
+                    <span className={`origin-tag ${originClass(entry.deniedBy)}`}>
+                      {originLabel(entry.deniedBy)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="hint">
+                これらは allow に含まれていましたが、上記のバインディングの deny によって除外されました。
               </p>
             </section>
           ) : null}

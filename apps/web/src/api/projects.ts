@@ -1,5 +1,6 @@
 import { apiRequest } from './client.js'
 import type {
+  Group,
   Project,
   ProjectRole,
   ScanCandidate,
@@ -29,16 +30,27 @@ export const setProjectRoles = (id: number, roleIds: number[]) =>
     body: JSON.stringify({ roleIds })
   })
 
-export const previewApply = (id: number, roleId: number) =>
+// Omitting roleId composes every binding reaching the project — scope, group
+// and direct. Passing one previews that single role in isolation, which is how
+// a role is examined before it is bound to anything.
+export const previewApply = (id: number, roleId?: number) =>
   apiRequest<ApplyPlan>(`/projects/${id}/apply/preview`, {
     method: 'POST',
-    body: JSON.stringify({ roleId })
+    body: JSON.stringify(roleId === undefined ? {} : { roleId })
   })
 
-export const applyRole = (id: number, roleId: number) =>
+export const applyRole = (id: number, roleId?: number) =>
   apiRequest<ApplySuccess>(`/projects/${id}/apply`, {
     method: 'POST',
-    body: JSON.stringify({ roleId })
+    body: JSON.stringify(roleId === undefined ? {} : { roleId })
+  })
+
+export const listProjectGroups = (id: number) => apiRequest<Group[]>(`/projects/${id}/groups`)
+
+export const setProjectGroups = (id: number, groupIds: number[]) =>
+  apiRequest<Group[]>(`/projects/${id}/groups`, {
+    method: 'PUT',
+    body: JSON.stringify({ groupIds })
   })
 
 export const listApplyHistory = (id: number) =>

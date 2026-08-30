@@ -29,7 +29,8 @@ import {
   composeRoles,
   type BindingOrigin,
   type ComposedRole,
-  type RoleBinding
+  type RoleBinding,
+  type SuppressedAllow
 } from './compose-roles.js'
 
 export interface ApplyPlannerDeps {
@@ -67,6 +68,11 @@ export interface ApplyPlan {
   // composed set would be the same kind of lie.
   roleId: number | null
   origins: PlanOrigin[]
+  // Entries a deny removed from allow, with the binding that denied them.
+  // Carried through from composeRoles because the preview is the only place
+  // someone can find out why a permission they granted is not in the result;
+  // dropping it here would make the allow disappear silently.
+  suppressedAllow: SuppressedAllow[]
   settingsFile: FileChange
   mcpFile: FileChange
   mcpAfterObject: Record<string, unknown>
@@ -279,6 +285,7 @@ export function buildApplyPlanForRoles(
     projectPath: project.path,
     roleId: refs.length === 1 && refs[0].origin.kind === 'direct' ? refs[0].roleId : null,
     origins,
+    suppressedAllow: composed.suppressedAllow,
     settingsFile: {
       path: settingsPath,
       before: settingsBefore,

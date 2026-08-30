@@ -1,6 +1,8 @@
 import { HashRouter, NavLink, Route, Routes } from 'react-router-dom'
 import { Dashboard } from './pages/Dashboard.js'
 import { Roles } from './pages/Roles.js'
+import { Groups } from './pages/Groups.js'
+import { Scopes } from './pages/Scopes.js'
 import { Catalog } from './pages/Catalog.js'
 import { Settings } from './pages/Settings.js'
 import { ProjectDetail } from './pages/ProjectDetail.js'
@@ -23,6 +25,12 @@ export function AppRoutes() {
           <NavLink to="/roles" className="nav-item">
             ロール
           </NavLink>
+          <NavLink to="/groups" className="nav-item">
+            グループ
+          </NavLink>
+          <NavLink to="/scopes" className="nav-item">
+            スコープ
+          </NavLink>
           <NavLink to="/catalog" className="nav-item">
             カタログ
           </NavLink>
@@ -37,6 +45,8 @@ export function AppRoutes() {
           <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/roles" element={<Roles />} />
           <Route path="/roles/:id" element={<RoleEditor />} />
+          <Route path="/groups" element={<Groups />} />
+          <Route path="/scopes" element={<Scopes />} />
           <Route path="/catalog" element={<Catalog />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>

@@ -52,6 +52,8 @@ const plan: ApplyPlan = {
   projectId: 1,
   projectPath: '/Users/dev/skillam',
   roleId: 7,
+  origins: [],
+  suppressedAllow: [],
   settingsFile: {
     path: '/Users/dev/skillam/.claude/settings.json',
     before: '{}',
@@ -118,6 +120,9 @@ function baseHandler(overrides: {
     }
     if (url.endsWith('/roles') && !url.includes('/projects/')) {
       return { status: 200, body: roles }
+    }
+    if (url.includes('/projects/1/groups')) {
+      return { status: 200, body: [] }
     }
     if (url.includes('/projects/1/roles')) {
       return { status: 200, body: [{ roleId: 7, priority: 0 }] }
@@ -335,76 +340,125 @@ describe('ProjectDetail', () => {
     await waitFor(() => expect(screen.getByText('不明なロールIDです')).toBeDefined())
   })
 
-  it('with two assigned roles, an 適用するロール selector appears, defaulting to the highest priority one', async () => {
-    stubFetch((url, init) => {
-      if (url.includes('/projects/1/roles') && (!init || init.method === undefined || init.method === 'GET')) {
-        return { status: 200, body: [{ roleId: 2, priority: 0 }, { roleId: 7, priority: 1 }] }
-      }
-      return baseHandler({
-        roles: [role, { ...role, id: 2, name: 'frontend-dev' }]
-      })(url, init)
-    })
-    renderDetail()
-
-    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
-    const selector = (await screen.findByLabelText('適用するロール')) as HTMLSelectElement
-    expect(selector).toBeDefined()
-    expect(selector.value).toBe('2')
-  })
-
-  it('with exactly one assigned role, no 適用するロール selector appears', async () => {
-    stubFetch(baseHandler())
-    renderDetail()
-
-    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
-    await screen.findByRole('button', { name: 'プレビュー' })
-    expect(screen.queryByLabelText('適用するロール')).toBeNull()
-  })
-
-  it('preview uses the role chosen in the 適用するロール selector', async () => {
-    let previewRoleId: number | null = null
+  // Composed apply is the default: every binding path reaching the project is
+  // applied at once. Sending a roleId would ask for one role in isolation and
+  // silently drop the group and scope bindings.
+  it('previews without a roleId so every binding is composed', async () => {
+    let previewBody: unknown = 'not-called'
     stubFetch((url, init) => {
       if (url.includes('/apply/preview')) {
-        previewRoleId = init?.body ? JSON.parse(String(init.body)).roleId : null
+        previewBody = init?.body ? JSON.parse(String(init.body)) : null
         return { status: 200, body: plan }
       }
       if (url.includes('/projects/1/roles') && (!init || init.method === undefined || init.method === 'GET')) {
         return { status: 200, body: [{ roleId: 2, priority: 0 }, { roleId: 7, priority: 1 }] }
       }
-      return baseHandler({
-        roles: [role, { ...role, id: 2, name: 'frontend-dev' }]
-      })(url, init)
+      return baseHandler({ roles: [role, { ...role, id: 2, name: 'frontend-dev' }] })(url, init)
     })
     renderDetail()
 
     await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
-    const selector = (await screen.findByLabelText('適用するロール')) as HTMLSelectElement
-    selector.value = '7'
-    selector.dispatchEvent(new Event('change', { bubbles: true }))
-
     const previewButton = await screen.findByRole('button', { name: 'プレビュー' })
     previewButton.click()
 
-    await waitFor(() => expect(previewRoleId).toBe(7))
+    await waitFor(() => expect(previewBody).toEqual({}))
   })
 
-  it('shows the multi-role hint when two or more roles are assigned', async () => {
+  it('applies without a roleId so every binding is composed', async () => {
+    let applyBody: unknown = 'not-called'
+    stubFetch((url, init) => {
+      if (url.includes('/apply/preview')) {
+        return { status: 200, body: plan }
+      }
+      if (url.includes('/apply') && init?.method === 'POST') {
+        applyBody = init.body ? JSON.parse(String(init.body)) : null
+        return { status: 200, body: { status: 'success', historyId: 1, plan } }
+      }
+      return baseHandler()(url, init)
+    })
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    ;(await screen.findByRole('button', { name: 'プレビュー' })).click()
+    const applyButton = await screen.findByRole('button', { name: '適用する' })
+    applyButton.click()
+
+    await waitFor(() => expect(applyBody).toEqual({}))
+  })
+
+  it('no longer offers a single-role selector', async () => {
     stubFetch((url, init) => {
       if (url.includes('/projects/1/roles') && (!init || init.method === undefined || init.method === 'GET')) {
         return { status: 200, body: [{ roleId: 2, priority: 0 }, { roleId: 7, priority: 1 }] }
       }
-      return baseHandler({
-        roles: [role, { ...role, id: 2, name: 'frontend-dev' }]
-      })(url, init)
+      return baseHandler({ roles: [role, { ...role, id: 2, name: 'frontend-dev' }] })(url, init)
     })
     renderDetail()
 
     await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
-    await waitFor(() =>
-      expect(
-        screen.getByText('適用は1ロールずつです。複数ロールの合成は未対応のため、適用するロールを選んでください。')
-      ).toBeDefined()
-    )
+    expect(screen.queryByLabelText('適用するロール')).toBeNull()
+  })
+
+  it('lists the groups a project belongs to as a binding path', async () => {
+    stubFetch((url, init) => {
+      if (url.includes('/projects/1/groups')) {
+        return { status: 200, body: [{ id: 3, name: 'typescript', description: '', createdAt: 'x' }] }
+      }
+      return baseHandler()(url, init)
+    })
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('typescript')).toBeDefined())
+    expect(screen.getAllByText('グループ').length).toBeGreaterThan(0)
+  })
+
+  it('shows where each item came from after preview', async () => {
+    const planWithOrigins: ApplyPlan = {
+      ...plan,
+      origins: [
+        { kind: 'skill', name: 'playwright', origin: { kind: 'group', name: 'typescript' } },
+        { kind: 'skill', name: 'drawio', origin: { kind: 'scope', path: '/Users/dev/work' } }
+      ]
+    }
+    stubFetch((url, init) => {
+      if (url.includes('/apply/preview')) {
+        return { status: 200, body: planWithOrigins }
+      }
+      return baseHandler()(url, init)
+    })
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    ;(await screen.findByRole('button', { name: 'プレビュー' })).click()
+
+    await waitFor(() => expect(screen.getByText('playwright')).toBeDefined())
+    expect(screen.getByText('グループ typescript')).toBeDefined()
+    expect(screen.getByText('スコープ /Users/dev/work')).toBeDefined()
+  })
+
+  // A permission that vanishes with no explanation is the failure this display
+  // exists to prevent.
+  it('shows which binding denied an allow that was dropped', async () => {
+    const planWithSuppressed: ApplyPlan = {
+      ...plan,
+      suppressedAllow: [
+        { entry: 'Bash(rm -rf*)', deniedBy: { kind: 'scope', path: '/Users/dev/work' } }
+      ]
+    }
+    stubFetch((url, init) => {
+      if (url.includes('/apply/preview')) {
+        return { status: 200, body: planWithSuppressed }
+      }
+      return baseHandler()(url, init)
+    })
+    renderDetail()
+
+    await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
+    ;(await screen.findByRole('button', { name: 'プレビュー' })).click()
+
+    await waitFor(() => expect(screen.getByText('deny で落ちた許可')).toBeDefined())
+    expect(screen.getByText('Bash(rm -rf*)')).toBeDefined()
+    expect(screen.getByText('スコープ /Users/dev/work')).toBeDefined()
   })
 
   it('renders drift items with kind, target, and detail', async () => {
@@ -440,9 +494,15 @@ describe('ProjectDetail', () => {
     await waitFor(() => expect(screen.getByText('.claude/settings.json が壊れています')).toBeDefined())
   })
 
-  it('disables プレビュー and shows a hint when no role is assigned', async () => {
+  // Preview stays enabled with nothing directly assigned: a scope binding
+  // matches by path and is invisible from here, so only the server can say
+  // whether anything reaches this project.
+  it('keeps プレビュー enabled when no role is directly assigned', async () => {
     stubFetch((url, init) => {
       if (url.includes('/apply-history')) {
+        return { status: 200, body: [] }
+      }
+      if (url.includes('/projects/1/groups')) {
         return { status: 200, body: [] }
       }
       if (url.includes('/projects/1/roles')) {
@@ -457,6 +517,6 @@ describe('ProjectDetail', () => {
 
     await waitFor(() => expect(screen.getByText('skillam')).toBeDefined())
     const previewButton = await screen.findByRole('button', { name: 'プレビュー' })
-    expect((previewButton as HTMLButtonElement).disabled).toBe(true)
+    expect((previewButton as HTMLButtonElement).disabled).toBe(false)
   })
 })

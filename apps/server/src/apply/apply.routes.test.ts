@@ -999,6 +999,42 @@ describe('apply routes — scope bindings', () => {
     expect(new ProjectsRepository(db).getById(projectId)?.lastAppliedRoleId).toBeNull()
   })
 
+  // composeRoles records what a deny removed from allow, but nothing carried it
+  // into the plan, so a permission could vanish with no way to find out which
+  // binding took it away. The preview is the only place this is visible.
+  it('reports which binding suppressed an allow', async () => {
+    const scopeRole = await createRole('company', { deny: ['Bash(rm -rf*)'] })
+    const directRole = await createRole('personal', { allow: ['Bash(rm -rf*)', 'Read(*)'] })
+    const scopePath = path.join(scratchRoot, 'work')
+    await createScope('work', [scopeRole])
+    const projectId = await createProjectAt(path.join('work', 'app'))
+    await app.inject({ method: 'PUT', url: `/projects/${projectId}/roles`, payload: { roleIds: [directRole] } })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.json().suppressedAllow).toEqual([
+      { entry: 'Bash(rm -rf*)', deniedBy: { kind: 'scope', path: scopePath } }
+    ])
+  })
+
+  it('reports an empty suppressedAllow when no deny removed an allow', async () => {
+    const roleId = await createRole('company', { allow: ['Read(*)'] })
+    await createScope('work', [roleId])
+    const projectId = await createProjectAt(path.join('work', 'app'))
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.json().suppressedAllow).toEqual([])
+  })
+
   it('stops applying a scope’s role once the scope is deleted', async () => {
     const roleId = await createRole('company', { allow: ['Read(*)'] })
     const scopeId = await createScope('work', [roleId])
