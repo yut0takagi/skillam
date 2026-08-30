@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3'
-import { normalizePath } from '../lib/paths.js'
+import { isPathWithin, normalizePath } from '../lib/paths.js'
+import { toProject, type ProjectRow } from '../projects/projects.repository.js'
+import type { Project } from '../projects/projects.types.js'
 import type { CreateScopeInput, Scope } from './scopes.types.js'
 
 interface ScopeRow {
@@ -45,6 +47,26 @@ export class ScopesRepository {
       | ScopeRow
       | undefined
     return row ? toScope(row) : undefined
+  }
+
+  // Every project sitting under this scope's path.
+  //
+  // Containment runs in TypeScript for the same reason it does in
+  // ScopeRolesRepository: SQL's LIKE would match a sibling that merely shares
+  // a prefix, and a boundary-correct pattern needs escaping anyway.
+  //
+  // Reaching a project depends on the path alone, so this deliberately does
+  // not join scope_roles — a scope with no roles bound yet still has an answer
+  // to "what would this affect?". Excluded projects are included too: the path
+  // matches, and hiding them turns "excluded on purpose" into "missing for no
+  // visible reason".
+  listProjectsForScope(id: number): Project[] | undefined {
+    const scope = this.getById(id)
+    if (!scope) {
+      return undefined
+    }
+    const rows = this.db.prepare('SELECT * FROM projects ORDER BY path').all() as ProjectRow[]
+    return rows.filter((row) => isPathWithin(row.path, scope.path)).map(toProject)
   }
 
   delete(id: number): boolean {

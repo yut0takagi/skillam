@@ -1,9 +1,16 @@
 import { useCallback, useState } from 'react'
-import { createScope, deleteScope, listScopes, listScopeRoles, setScopeRoles } from '../api/scopes.js'
+import {
+  createScope,
+  deleteScope,
+  listScopeProjects,
+  listScopeRoles,
+  listScopes,
+  setScopeRoles
+} from '../api/scopes.js'
 import { listRoles } from '../api/roles.js'
 import { useApi } from '../lib/useApi.js'
 import { ConfirmDialog } from '../components/ConfirmDialog.js'
-import type { Scope, ScopeRole } from '../api/types.js'
+import type { Project, Scope, ScopeRole } from '../api/types.js'
 
 export function Scopes() {
   const { data: scopes, error, loading, reload } = useApi(listScopes)
@@ -15,6 +22,9 @@ export function Scopes() {
   const [pendingDelete, setPendingDelete] = useState<Scope | null>(null)
 
   const [openScopeId, setOpenScopeId] = useState<number | null>(null)
+  const [openProjectsScopeId, setOpenProjectsScopeId] = useState<number | null>(null)
+  const [reachedProjects, setReachedProjects] = useState<Project[]>([])
+  const [projectsError, setProjectsError] = useState<string | null>(null)
   const [openRoleIds, setOpenRoleIds] = useState<number[]>([])
   const [rolesError, setRolesError] = useState<string | null>(null)
   const [savingRoles, setSavingRoles] = useState(false)
@@ -62,6 +72,23 @@ export function Scopes() {
     }
     setOpenScopeId(scope.id)
     setOpenRoleIds(result.data.map((bound: ScopeRole) => bound.roleId))
+  }
+
+  // A scope's reach is otherwise invisible: it matches by path, so the only
+  // way to know what a new or deleted scope affects is to ask.
+  async function handleOpenProjects(scope: Scope) {
+    if (openProjectsScopeId === scope.id) {
+      setOpenProjectsScopeId(null)
+      return
+    }
+    setProjectsError(null)
+    const result = await listScopeProjects(scope.id)
+    if (!result.ok) {
+      setProjectsError(result.message)
+      return
+    }
+    setOpenProjectsScopeId(scope.id)
+    setReachedProjects(result.data)
   }
 
   function toggleRole(roleId: number) {
@@ -154,6 +181,9 @@ export function Scopes() {
                       <button type="button" className="btn" onClick={() => handleOpenRoles(scope)}>
                         {openScopeId === scope.id ? '閉じる' : 'ロール'}
                       </button>
+                      <button type="button" className="btn" onClick={() => handleOpenProjects(scope)}>
+                        {openProjectsScopeId === scope.id ? '閉じる' : '対象PJT'}
+                      </button>
                       <button type="button" className="btn" onClick={() => setPendingDelete(scope)}>
                         削除
                       </button>
@@ -163,6 +193,48 @@ export function Scopes() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {projectsError && <p style={{ color: 'var(--danger)' }}>{projectsError}</p>}
+
+        {openProjectsScopeId !== null && (
+          <section>
+            <div className="sec-head">
+              <h2>このスコープに当たるプロジェクト</h2>
+              <span className="sec-meta">{reachedProjects.length}件</span>
+            </div>
+            {reachedProjects.length === 0 ? (
+              <p className="hint">このスコープに当たるプロジェクトはありません。</p>
+            ) : (
+              <div className="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>名前</th>
+                      <th>パス</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reachedProjects.map((project) => (
+                      <tr key={project.id}>
+                        <td className="cell-name">
+                          {project.name}
+                          {project.excluded ? <span className="pill pill-mute">除外</span> : null}
+                        </td>
+                        <td>
+                          <code>{project.path}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="hint">
+              パスの前方一致で当たっているものです。除外されたプロジェクトには適用されませんが、
+              当たっている事実は表示します。
+            </p>
+          </section>
         )}
 
         {rolesError && <p style={{ color: 'var(--danger)' }}>{rolesError}</p>}

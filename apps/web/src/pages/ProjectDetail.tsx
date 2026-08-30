@@ -8,15 +8,18 @@ import {
   listProjectGroups,
   listProjectRoles,
   previewApply,
+  setProjectGroups,
   setProjectRoles
 } from '../api/projects.js'
 import { listRoles } from '../api/roles.js'
+import { listGroups } from '../api/groups.js'
 import { useApi } from '../lib/useApi.js'
 import { DiffView } from '../components/DiffView.js'
 import type { ApiErrorKind } from '../api/client.js'
 import type {
   ApplyPlan,
   BindingOrigin,
+  Group,
   ManagedState,
   MaterializeOperation,
   PlanOrigin,
@@ -105,8 +108,12 @@ export function ProjectDetail() {
   const historyApi = useApi(useCallback(() => listApplyHistory(projectId), [projectId]))
   const driftApi = useApi(useCallback(() => getProjectDrift(projectId), [projectId]))
   const projectGroupsApi = useApi(useCallback(() => listProjectGroups(projectId), [projectId]))
+  const groupsApi = useApi(useCallback(() => listGroups(), []))
 
   const [checkedRoleIds, setCheckedRoleIds] = useState<number[]>([])
+  const [checkedGroupIds, setCheckedGroupIds] = useState<number[]>([])
+  const [groupSaveError, setGroupSaveError] = useState<string | null>(null)
+  const [groupSaving, setGroupSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -129,6 +136,7 @@ export function ProjectDetail() {
   // expected) would otherwise throw during render and blank the whole page,
   // hiding the preview and history along with it.
   const projectGroups = Array.isArray(projectGroupsApi.data) ? projectGroupsApi.data : []
+  const allGroups = Array.isArray(groupsApi.data) ? groupsApi.data : []
 
   const roleNameById = useMemo(() => {
     const map = new Map<number, string>()
@@ -148,6 +156,18 @@ export function ProjectDetail() {
   useEffect(() => {
     setCheckedRoleIds(assignedRoleIds)
   }, [assignedRoleIds])
+
+  // Keyed on the API result rather than the derived array: projectGroups is
+  // rebuilt on every render, so depending on it directly would reset the
+  // checkboxes mid-edit.
+  const memberGroupIds = useMemo(
+    () => (Array.isArray(projectGroupsApi.data) ? projectGroupsApi.data.map((group) => group.id) : []),
+    [projectGroupsApi.data]
+  )
+
+  useEffect(() => {
+    setCheckedGroupIds(memberGroupIds)
+  }, [memberGroupIds])
 
   const latestSuccessManaged = useMemo(() => {
     const success = history.find((entry) => entry.status === 'success')
@@ -209,6 +229,24 @@ export function ProjectDetail() {
     }
     projectRolesApi.reload()
   }, [projectId, checkedRoleIds, projectRolesApi])
+
+  const handleToggleGroup = useCallback((groupId: number) => {
+    setCheckedGroupIds((current) =>
+      current.includes(groupId) ? current.filter((id) => id !== groupId) : [...current, groupId]
+    )
+  }, [])
+
+  const handleSaveGroups = useCallback(async () => {
+    setGroupSaving(true)
+    setGroupSaveError(null)
+    const result = await setProjectGroups(projectId, checkedGroupIds)
+    setGroupSaving(false)
+    if (!result.ok) {
+      setGroupSaveError(result.message)
+      return
+    }
+    projectGroupsApi.reload()
+  }, [projectId, checkedGroupIds, projectGroupsApi])
 
   if (projectApi.loading && !project) {
     return (
@@ -481,6 +519,41 @@ export function ProjectDetail() {
                 保存
               </button>
               {saveError ? <p className="hint">{saveError}</p> : null}
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-head">グループ</div>
+            <div className="panel-body">
+              {allGroups.length === 0 ? (
+                <p className="hint">グループがまだありません。</p>
+              ) : (
+                <>
+                  <div className="checklist">
+                    {allGroups.map((group: Group) => (
+                      <label className="check" key={group.id}>
+                        <input
+                          type="checkbox"
+                          checked={checkedGroupIds.includes(group.id)}
+                          onChange={() => handleToggleGroup(group.id)}
+                          aria-label={group.name}
+                        />
+                        <span className="check-main">
+                          <span className="check-name">{group.name}</span>
+                          {group.description ? (
+                            <span className="check-desc">{group.description}</span>
+                          ) : null}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <button type="button" className="btn" onClick={handleSaveGroups} disabled={groupSaving}>
+                    グループを保存
+                  </button>
+                </>
+              )}
+              {groupSaveError ? <p className="hint">{groupSaveError}</p> : null}
+              <p className="hint">所属するグループが配るロールは、適用時に合成されます。</p>
             </div>
           </div>
 
