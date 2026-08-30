@@ -337,7 +337,7 @@ npx tsc --noEmit -p apps/web/tsconfig.json
 
 テストはすべて一時ディレクトリとインメモリ DB を使う。実際の `~/.claude` や `~/.skillam` には触れない。
 
-ルートから `npx vitest run` を直接叩くと web の jsdom 設定が読まれず大量に落ちる。`npm test` を使う。
+ルートの `vitest.config.mts` が両 workspace を projects として束ねているので、`npx vitest run` を直接叩いても各 workspace の設定（web の jsdom など）が使われる。
 
 作業中の設計と進捗は [docs/ROLE-COMPOSITION.md](docs/ROLE-COMPOSITION.md) と [docs/HANDOFF.md](docs/HANDOFF.md)。
 
