@@ -16,7 +16,8 @@ import { ApplyHistoryRepository } from './apply-history.repository.js'
 import { UnsupportedSettingsError } from './plan-settings.js'
 import { MaterializeConflictError } from './plan-materialize.js'
 import { GitTrackedTargetError } from './git-tracked.js'
-import { buildApplyPlan } from './apply-planner.js'
+import { buildApplyPlan, buildApplyPlanForRoles } from './apply-planner.js'
+import { RoleCompositionConflictError } from './compose-roles.js'
 import type { ApplyPlannerDeps } from './apply-planner.js'
 import { EMPTY_MANAGED_STATE } from './managed-state.js'
 
@@ -353,5 +354,157 @@ describe('buildApplyPlan', () => {
       expect(content).toContain('settings.local.json')
       expect(content).toContain('skills/')
     })
+  })
+})
+
+describe('buildApplyPlan — multiple roles', () => {
+  let db: Database.Database
+  let deps: ApplyPlannerDeps
+  let scratchRoot: string
+  let projectPath: string
+
+  beforeEach(() => {
+    db = openDb(':memory:')
+    runMigrations(db)
+    scratchRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-compose-test-')))
+    projectPath = path.join(scratchRoot, 'project')
+    fs.mkdirSync(projectPath, { recursive: true })
+
+    deps = {
+      skills: new RoleSkillsRepository(db),
+      agents: new RoleAgentsRepository(db),
+      mcpServers: new RoleMcpServersRepository(db),
+      permissions: new RolePermissionsRepository(db),
+      history: new ApplyHistoryRepository(db)
+    }
+  })
+
+  afterEach(() => {
+    fs.rmSync(scratchRoot, { recursive: true, force: true })
+  })
+
+  function project() {
+    return new ProjectsRepository(db).create({ path: projectPath, name: 'project' })
+  }
+
+  function makeSkill(name: string): string {
+    const skillPath = path.join(scratchRoot, 'skills', name)
+    fs.mkdirSync(skillPath, { recursive: true })
+    fs.writeFileSync(path.join(skillPath, 'SKILL.md'), `# ${name}\n`)
+    return skillPath
+  }
+
+  it('materializes skills from every bound role', () => {
+    const roles = new RolesRepository(db)
+    const teamRole = roles.create({ name: 'team' }).id
+    const personalRole = roles.create({ name: 'personal' }).id
+    new RoleSkillsRepository(db).replaceForRole(teamRole, [
+      { skillSource: 'user', skillPath: makeSkill('drawio') }
+    ])
+    new RoleSkillsRepository(db).replaceForRole(personalRole, [
+      { skillSource: 'user', skillPath: makeSkill('playwright') }
+    ])
+
+    const plan = buildApplyPlanForRoles(deps, project(), [
+      { roleId: teamRole, origin: { kind: 'direct' }, priority: 0 },
+      { roleId: personalRole, origin: { kind: 'direct' }, priority: 1 }
+    ])
+
+    const linked = plan.operations.map((operation) => path.basename(operation.path))
+    expect(linked).toContain('drawio')
+    expect(linked).toContain('playwright')
+  })
+
+  it('merges permissions from every bound role into settings.local.json', () => {
+    const roles = new RolesRepository(db)
+    const a = roles.create({ name: 'a' }).id
+    const b = roles.create({ name: 'b' }).id
+    const permissions = new RolePermissionsRepository(db)
+    permissions.setForRole(a, { permissions: { allow: ['Read(*)'] } })
+    permissions.setForRole(b, { permissions: { allow: ['Edit'] } })
+
+    const plan = buildApplyPlanForRoles(deps, project(), [
+      { roleId: a, origin: { kind: 'direct' }, priority: 0 },
+      { roleId: b, origin: { kind: 'direct' }, priority: 1 }
+    ])
+
+    const settings = JSON.parse(plan.settingsFile.after)
+    expect(settings.permissions.allow).toContain('Read(*)')
+    expect(settings.permissions.allow).toContain('Edit')
+  })
+
+  // The organisation-wide rule has to survive the individual binding, or a
+  // scope-level restriction means nothing.
+  it('lets a deny from one role remove an allow granted by another', () => {
+    const roles = new RolesRepository(db)
+    const orgRole = roles.create({ name: 'org' }).id
+    const personalRole = roles.create({ name: 'personal' }).id
+    const permissions = new RolePermissionsRepository(db)
+    permissions.setForRole(orgRole, { permissions: { deny: ['Bash(rm -rf*)'] } })
+    permissions.setForRole(personalRole, { permissions: { allow: ['Bash(rm -rf*)', 'Read(*)'] } })
+
+    const plan = buildApplyPlanForRoles(deps, project(), [
+      { roleId: orgRole, origin: { kind: 'scope', path: '/work' }, priority: 0 },
+      { roleId: personalRole, origin: { kind: 'direct' }, priority: 0 }
+    ])
+
+    const settings = JSON.parse(plan.settingsFile.after)
+    expect(settings.permissions.allow).not.toContain('Bash(rm -rf*)')
+    expect(settings.permissions.allow).toContain('Read(*)')
+    expect(settings.permissions.deny).toContain('Bash(rm -rf*)')
+  })
+
+  it('refuses when two roles bind the same skill name to different paths', () => {
+    const roles = new RolesRepository(db)
+    const a = roles.create({ name: 'a' }).id
+    const b = roles.create({ name: 'b' }).id
+    const skills = new RoleSkillsRepository(db)
+    const first = path.join(scratchRoot, 'one', 'playwright')
+    const second = path.join(scratchRoot, 'two', 'playwright')
+    for (const dir of [first, second]) {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), '# playwright\n')
+    }
+    skills.replaceForRole(a, [{ skillSource: 'user', skillPath: first }])
+    skills.replaceForRole(b, [{ skillSource: 'user', skillPath: second }])
+
+    expect(() =>
+      buildApplyPlanForRoles(deps, project(), [
+        { roleId: a, origin: { kind: 'group', name: 'ts' }, priority: 0 },
+        { roleId: b, origin: { kind: 'direct' }, priority: 0 }
+      ])
+    ).toThrow(RoleCompositionConflictError)
+  })
+
+  it('reports which binding each materialized skill came from', () => {
+    const roles = new RolesRepository(db)
+    const teamRole = roles.create({ name: 'team' }).id
+    new RoleSkillsRepository(db).replaceForRole(teamRole, [
+      { skillSource: 'user', skillPath: makeSkill('drawio') }
+    ])
+
+    const plan = buildApplyPlanForRoles(deps, project(), [
+      { roleId: teamRole, origin: { kind: 'scope', path: '/work' }, priority: 0 }
+    ])
+
+    expect(plan.origins).toEqual([
+      { kind: 'skill', name: 'drawio', origin: { kind: 'scope', path: '/work' } }
+    ])
+  })
+
+  // Existing callers pass one roleId. That path has to keep producing exactly
+  // what it did before, or every applied project drifts on the next run.
+  it('produces the same plan as the single-role entry point', () => {
+    const roleId = new RolesRepository(db).create({ name: 'solo' }).id
+    new RolePermissionsRepository(db).setForRole(roleId, { permissions: { allow: ['Edit'] } })
+    const target = project()
+
+    const single = buildApplyPlan(deps, target, roleId)
+    const composed = buildApplyPlanForRoles(deps, target, [
+      { roleId, origin: { kind: 'direct' }, priority: 0 }
+    ])
+
+    expect(composed.settingsFile.after).toBe(single.settingsFile.after)
+    expect(composed.managed).toEqual(single.managed)
   })
 })

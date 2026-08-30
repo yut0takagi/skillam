@@ -15,7 +15,7 @@ export interface ApplyHistoryEntry {
 
 export interface RecordApplyInput {
   projectId: number
-  roleId: number
+  roleId: number | null
   diff: unknown
   managed: ManagedState
   status: ApplyStatus

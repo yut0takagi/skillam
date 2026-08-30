@@ -382,3 +382,158 @@ describe('apply route: history recording also fails after a failed write', () =>
     }
   })
 })
+
+describe('apply routes — bound roles', () => {
+  let db: Database.Database
+  let app: FastifyInstance
+  let scratchRoot: string
+  let projectPath: string
+  let projectId: number
+
+  beforeEach(async () => {
+    db = openDb(':memory:')
+    runMigrations(db)
+    scratchRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-bound-roles-test-')))
+    projectPath = path.join(scratchRoot, 'project')
+    fs.mkdirSync(projectPath, { recursive: true })
+    app = buildApp(db, new InMemoryKeychainClient())
+
+    projectId = (
+      await app.inject({ method: 'POST', url: '/projects', payload: { path: projectPath, name: 'p' } })
+    ).json().id
+  })
+
+  afterEach(async () => {
+    await app.close()
+    db.close()
+    fs.rmSync(scratchRoot, { recursive: true, force: true })
+  })
+
+  async function createRole(name: string, allow: string[]): Promise<number> {
+    const id = (await app.inject({ method: 'POST', url: '/roles', payload: { name } })).json().id
+    await app.inject({
+      method: 'PUT',
+      url: `/roles/${id}/permissions`,
+      payload: { permissions: { allow } }
+    })
+    return id
+  }
+
+  // Without a roleId the preview has to fall back to what the project is bound
+  // to. project_roles has always been able to hold several rows; before this it
+  // held them and nothing read them.
+  it('previews every role bound to the project when no roleId is given', async () => {
+    const first = await createRole('team', ['Read(*)'])
+    const second = await createRole('personal', ['Edit'])
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [first, second] }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(200)
+    const settings = JSON.parse(response.json().settingsFile.after)
+    expect(settings.permissions.allow).toContain('Read(*)')
+    expect(settings.permissions.allow).toContain('Edit')
+  })
+
+  it('still honours an explicit roleId over the bound roles', async () => {
+    const bound = await createRole('bound', ['Read(*)'])
+    const explicit = await createRole('explicit', ['Edit'])
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [bound] }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: { roleId: explicit }
+    })
+
+    const settings = JSON.parse(response.json().settingsFile.after)
+    expect(settings.permissions.allow).toContain('Edit')
+    expect(settings.permissions.allow).not.toContain('Read(*)')
+  })
+
+  it('reports 400 when the project has no bound roles and no roleId is given', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  it('reports 409 when two bound roles disagree on the same name', async () => {
+    const first = (await app.inject({ method: 'POST', url: '/roles', payload: { name: 'a' } })).json().id
+    const second = (await app.inject({ method: 'POST', url: '/roles', payload: { name: 'b' } })).json().id
+    const one = path.join(scratchRoot, 'one', 'playwright')
+    const two = path.join(scratchRoot, 'two', 'playwright')
+    for (const dir of [one, two]) {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), '# playwright\n')
+    }
+    new RoleSkillsRepository(db).replaceForRole(first, [{ skillSource: 'user', skillPath: one }])
+    new RoleSkillsRepository(db).replaceForRole(second, [{ skillSource: 'user', skillPath: two }])
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [first, second] }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toContain('playwright')
+  })
+  // A history row's role_id names the role that was applied. With several
+  // bindings there is no single such role, and naming the first would make the
+  // history claim an apply that never happened that way. The column is already
+  // nullable; null is the honest value.
+  it('records no single role in history when several roles were composed', async () => {
+    const first = await createRole('team', ['Read(*)'])
+    const second = await createRole('personal', ['Edit'])
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [first, second] }
+    })
+
+    const applied = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply`,
+      payload: {}
+    })
+    expect(applied.statusCode).toBe(200)
+
+    const history = new ApplyHistoryRepository(db).listForProject(projectId)
+    expect(history[0].roleId).toBeNull()
+  })
+
+  it('still records the role when exactly one was applied', async () => {
+    const only = await createRole('solo', ['Edit'])
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [only] }
+    })
+
+    await app.inject({ method: 'POST', url: `/projects/${projectId}/apply`, payload: {} })
+
+    const history = new ApplyHistoryRepository(db).listForProject(projectId)
+    expect(history[0].roleId).toBe(only)
+  })
+})
