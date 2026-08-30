@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
 import { openDb } from '../db/client.js'
@@ -8,11 +11,17 @@ import { buildApp } from '../app.js'
 describe('scopes routes', () => {
   let db: Database.Database
   let app: FastifyInstance
+  let scratchRoot: string
 
   beforeEach(() => {
     db = openDb(':memory:')
     runMigrations(db)
+    scratchRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-scopes-routes-test-')))
     app = buildApp(db)
+  })
+
+  afterEach(() => {
+    fs.rmSync(scratchRoot, { recursive: true, force: true })
   })
 
   async function createScope(scopePath: string): Promise<number> {
@@ -174,4 +183,75 @@ describe('scopes routes', () => {
 
     expect((await app.inject({ method: 'GET', url: `/roles/${roleId}` })).statusCode).toBe(200)
   })
+
+
+  // Projects must exist on disk: POST /projects canonicalizes the path and
+  // rejects anything that isn't a real directory.
+  async function createProject(relativePath: string): Promise<number> {
+    const projectPath = path.join(scratchRoot, relativePath)
+    fs.mkdirSync(projectPath, { recursive: true })
+    return (
+      await app.inject({
+        method: 'POST',
+        url: '/projects',
+        payload: { path: projectPath, name: path.basename(relativePath) }
+      })
+    ).json().id
+  }
+
+  // A scope matches by path alone, so nothing on screen says which projects it
+  // reaches. Registering or deleting one is otherwise a change with an
+  // invisible blast radius.
+  it('lists the projects a scope reaches via GET /scopes/:id/projects', async () => {
+    const scopeId = await createScope(path.join(scratchRoot, 'work'))
+    const inside = await createProject('work/app')
+    await createProject('personal/app')
+
+    const response = await app.inject({ method: 'GET', url: `/scopes/${scopeId}/projects` })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().map((project: { id: number }) => project.id)).toEqual([inside])
+  })
+
+  // The same boundary isPathWithin guards: 'work-notes' starts with 'work' as
+  // a string but is not underneath it.
+  it('does not match a sibling directory sharing a prefix', async () => {
+    const scopeId = await createScope(path.join(scratchRoot, 'work'))
+    await createProject('work-notes/app')
+
+    expect((await app.inject({ method: 'GET', url: `/scopes/${scopeId}/projects` })).json()).toEqual([])
+  })
+
+  // Excluded projects still match the path. They are reported so someone can
+  // see why a role is not arriving, rather than wondering where the project
+  // went.
+  it('includes excluded projects', async () => {
+    const scopeId = await createScope(path.join(scratchRoot, 'work'))
+    const projectId = await createProject('work/app')
+    await app.inject({ method: 'PUT', url: `/projects/${projectId}`, payload: { excluded: true } })
+
+    const response = await app.inject({ method: 'GET', url: `/scopes/${scopeId}/projects` })
+
+    expect(response.json()).toMatchObject([{ id: projectId, excluded: true }])
+  })
+
+  // Reaching a project is a property of the path, not of the bindings. A scope
+  // with no roles yet still has an answer to "what would this affect?".
+  it('reports reached projects even when the scope binds no roles', async () => {
+    const scopeId = await createScope(path.join(scratchRoot, 'work'))
+    const projectId = await createProject('work/app')
+
+    expect((await app.inject({ method: 'GET', url: `/scopes/${scopeId}/projects` })).json()).toMatchObject([
+      { id: projectId }
+    ])
+  })
+
+  it('reports 404 for GET /scopes/:id/projects on an unknown scope', async () => {
+    const scopeId = await createScope(path.join(scratchRoot, 'work'))
+
+    expect(
+      (await app.inject({ method: 'GET', url: `/scopes/${scopeId + 1}/projects` })).statusCode
+    ).toBe(404)
+  })
+
 })

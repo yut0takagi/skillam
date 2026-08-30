@@ -76,6 +76,16 @@ export const scopesRoutes: FastifyPluginAsync<ScopesRouteDeps> = async (app, dep
     return deps.scopeRoles.listForScope(id)
   })
 
+  // What this scope currently reaches. A scope binds by path, so this is the
+  // only way to see its blast radius before adding roles to it or deleting it.
+  app.get<{ Params: { id: string } }>('/scopes/:id/projects', async (request, reply) => {
+    const projects = deps.scopes.listProjectsForScope(Number(request.params.id))
+    if (!projects) {
+      return reply.status(404).send({ error: 'scope not found' })
+    }
+    return projects
+  })
+
   app.put<{ Params: { id: string }; Body: { roleIds: number[] } }>(
     '/scopes/:id/roles',
     async (request, reply) => {
