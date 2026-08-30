@@ -52,10 +52,10 @@ describe('drift routes', () => {
     expect(response.json().lastAppliedAt).not.toBeNull()
   })
 
-  it('reports drift when a recorded permission is removed from settings.json', async () => {
+  it('reports drift when a recorded permission is removed from settings.local.json', async () => {
     await app.inject({ method: 'POST', url: `/projects/${projectId}/apply`, payload: { roleId } })
 
-    const settingsPath = path.join(projectPath, '.claude', 'settings.json')
+    const settingsPath = path.join(projectPath, '.claude', 'settings.local.json')
     fs.writeFileSync(settingsPath, JSON.stringify({ permissions: { allow: [] } }))
 
     const response = await app.inject({ method: 'GET', url: `/projects/${projectId}/drift` })
@@ -86,14 +86,14 @@ describe('drift routes', () => {
     expect(response.statusCode).toBe(404)
   })
 
-  it('returns 409 when settings.json cannot be parsed', async () => {
+  it('returns 409 when settings.local.json cannot be parsed', async () => {
     await app.inject({ method: 'POST', url: `/projects/${projectId}/apply`, payload: { roleId } })
-    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.json'), '{ broken')
+    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.local.json'), '{ broken')
 
     const response = await app.inject({ method: 'GET', url: `/projects/${projectId}/drift` })
 
     expect(response.statusCode).toBe(409)
-    expect(response.json().error).toContain('settings.json')
+    expect(response.json().error).toContain('settings.local.json')
   })
 
   it('lists drift reports for every registered project', async () => {
@@ -132,7 +132,7 @@ describe('drift routes', () => {
       await app.inject({ method: 'POST', url: '/projects', payload: { path: secondPath, name: 'p2' } })
     ).json().id
     await app.inject({ method: 'POST', url: `/projects/${secondId}/apply`, payload: { roleId: secondRoleId } })
-    fs.writeFileSync(path.join(secondPath, '.claude', 'settings.json'), '{ broken')
+    fs.writeFileSync(path.join(secondPath, '.claude', 'settings.local.json'), '{ broken')
 
     await app.inject({ method: 'POST', url: `/projects/${projectId}/apply`, payload: { roleId } })
 
@@ -149,7 +149,7 @@ describe('drift routes', () => {
     expect(broken?.items).toEqual([
       expect.objectContaining({
         kind: 'config-unreadable',
-        target: path.join(secondPath, '.claude', 'settings.json')
+        target: path.join(secondPath, '.claude', 'settings.local.json')
       })
     ])
   })

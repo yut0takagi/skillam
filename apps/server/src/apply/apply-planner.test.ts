@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import os from 'node:os'
+import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type Database from 'better-sqlite3'
@@ -14,6 +15,7 @@ import { ProjectsRepository } from '../projects/projects.repository.js'
 import { ApplyHistoryRepository } from './apply-history.repository.js'
 import { UnsupportedSettingsError } from './plan-settings.js'
 import { MaterializeConflictError } from './plan-materialize.js'
+import { GitTrackedTargetError } from './git-tracked.js'
 import { buildApplyPlan } from './apply-planner.js'
 import type { ApplyPlannerDeps } from './apply-planner.js'
 import { EMPTY_MANAGED_STATE } from './managed-state.js'
@@ -51,20 +53,20 @@ describe('buildApplyPlan', () => {
     return new ProjectsRepository(db).create({ path: projectPath, name: 'project' })
   }
 
-  it('plans settings.json from scratch when the project has no .claude directory', () => {
+  it('plans settings.local.json from scratch when the project has no .claude directory', () => {
     new RolePermissionsRepository(db).setForRole(roleId, { permissions: { allow: ['Edit'] } })
 
     const plan = buildApplyPlan(deps, project(), roleId)
 
-    expect(plan.settingsFile.path).toBe(path.join(projectPath, '.claude', 'settings.json'))
+    expect(plan.settingsFile.path).toBe(path.join(projectPath, '.claude', 'settings.local.json'))
     expect(plan.settingsFile.before).toBeNull()
     expect(JSON.parse(plan.settingsFile.after)).toEqual({ permissions: { allow: ['Edit'] } })
   })
 
-  it('preserves the existing settings.json content it does not manage', () => {
+  it('preserves the existing settings.local.json content it does not manage', () => {
     fs.mkdirSync(path.join(projectPath, '.claude'), { recursive: true })
     fs.writeFileSync(
-      path.join(projectPath, '.claude', 'settings.json'),
+      path.join(projectPath, '.claude', 'settings.local.json'),
       JSON.stringify({ language: 'ja', permissions: { allow: ['Bash(git:*)'] } })
     )
     new RolePermissionsRepository(db).setForRole(roleId, { permissions: { allow: ['Edit'] } })
@@ -77,9 +79,9 @@ describe('buildApplyPlan', () => {
     })
   })
 
-  it('refuses to plan against a settings.json that is not valid JSON', () => {
+  it('refuses to plan against a settings.local.json that is not valid JSON', () => {
     fs.mkdirSync(path.join(projectPath, '.claude'), { recursive: true })
-    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.json'), '{ broken')
+    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.local.json'), '{ broken')
     const created = project()
 
     expect(() => buildApplyPlan(deps, created, roleId)).toThrow(UnsupportedSettingsError)
@@ -92,14 +94,17 @@ describe('buildApplyPlan', () => {
 
     const plan = buildApplyPlan(deps, project(), roleId)
 
-    expect(plan.operations).toEqual([
+    // .gitignore is planned alongside anything materialized and is asserted
+    // on its own in the git-safe writes block; exclude it here so this test
+    // keeps testing the skill link.
+    expect(plan.operations.filter((op) => !op.path.endsWith('.gitignore'))).toEqual([
       {
         type: 'create-link',
         path: path.join(projectPath, '.claude', 'skills', 'drawio'),
         target: skillPath
       }
     ])
-    expect(plan.managed.materialized).toEqual(['.claude/skills/drawio'])
+    expect(plan.managed.materialized).toContain('.claude/skills/drawio')
   })
 
   it('plans a link for a reference agent and a file write for an authored agent', () => {
@@ -113,7 +118,7 @@ describe('buildApplyPlan', () => {
 
     const plan = buildApplyPlan(deps, project(), roleId)
 
-    expect(plan.operations).toEqual([
+    expect(plan.operations.filter((op) => !op.path.endsWith('.gitignore'))).toEqual([
       {
         type: 'create-link',
         path: path.join(projectPath, '.claude', 'agents', 'reviewer.md'),
@@ -248,14 +253,16 @@ describe('buildApplyPlan', () => {
 
     const plan = buildApplyPlan(deps, createdProject, roleId)
 
-    expect(plan.operations).toEqual([
+    expect(plan.operations.filter((op) => !op.path.endsWith('.gitignore'))).toEqual([
       {
         type: 'create-link',
         path: path.join(projectPath, '.claude', 'skills', 'drawio'),
         target: skillPath
       }
     ])
-    expect(plan.managed.materialized).toEqual(['.claude/skills/drawio'])
+    // .gitignore is recorded as managed too, so dropping the role later
+    // cleans it up instead of leaving it behind.
+    expect(plan.managed.materialized).toEqual(['.claude/skills/drawio', '.claude/.gitignore'])
   })
 
   it('refuses to plan two skills whose basenames collide on the same destination path', () => {
@@ -269,5 +276,82 @@ describe('buildApplyPlan', () => {
     ])
 
     expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(MaterializeConflictError)
+  })
+
+  // --- git-safe writes ------------------------------------------------------
+
+  describe('git-safe writes', () => {
+    function git(...args: string[]): void {
+      execFileSync('git', args, { cwd: projectPath, stdio: 'pipe' })
+    }
+
+    function initRepo(): void {
+      git('init', '-q')
+      git('config', 'user.email', 'test@example.com')
+      git('config', 'user.name', 'test')
+    }
+
+    // Permissions go to settings.local.json, which is conventionally
+    // gitignored, so an apply never touches a settings.json the team shares.
+    it('writes permissions to settings.local.json instead of settings.json', () => {
+      new RolePermissionsRepository(db).setForRole(roleId, { permissions: { allow: ['Edit'] } })
+
+      const plan = buildApplyPlan(deps, project(), roleId)
+
+      expect(plan.settingsFile.path).toBe(path.join(projectPath, '.claude', 'settings.local.json'))
+    })
+
+    it('does not merge into a git-tracked settings.json the team shares', () => {
+      initRepo()
+      fs.mkdirSync(path.join(projectPath, '.claude'), { recursive: true })
+      fs.writeFileSync(
+        path.join(projectPath, '.claude', 'settings.json'),
+        `${JSON.stringify({ permissions: { allow: ['Bash'] } })}\n`
+      )
+      git('add', '.claude/settings.json')
+      git('commit', '-qm', 'team settings')
+      new RolePermissionsRepository(db).setForRole(roleId, { permissions: { allow: ['Edit'] } })
+
+      const plan = buildApplyPlan(deps, project(), roleId)
+
+      expect(plan.settingsFile.path).toBe(path.join(projectPath, '.claude', 'settings.local.json'))
+      // The team's Bash entry is not carried into skillam's file.
+      expect(JSON.parse(plan.settingsFile.after)).toEqual({ permissions: { allow: ['Edit'] } })
+      // And the shared file is left exactly as committed.
+      expect(JSON.parse(fs.readFileSync(path.join(projectPath, '.claude', 'settings.json'), 'utf-8'))).toEqual({
+        permissions: { allow: ['Bash'] }
+      })
+    })
+
+    // A tracked destination means a commit would publish this machine's
+    // absolute paths to every other clone. Refuse rather than guess.
+    it('refuses to materialize onto a git-tracked path', () => {
+      initRepo()
+      const skillDir = path.join(scratchRoot, 'store', 'skills', 'demo')
+      fs.mkdirSync(skillDir, { recursive: true })
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# demo\n')
+      fs.mkdirSync(path.join(projectPath, '.claude', 'skills', 'demo'), { recursive: true })
+      fs.writeFileSync(path.join(projectPath, '.claude', 'skills', 'demo', 'SKILL.md'), '# committed\n')
+      git('add', '.claude/skills/demo/SKILL.md')
+      git('commit', '-qm', 'committed skill')
+      new RoleSkillsRepository(db).replaceForRole(roleId, [{ skillSource: 'user', skillPath: skillDir }])
+
+      expect(() => buildApplyPlan(deps, project(), roleId)).toThrow(GitTrackedTargetError)
+    })
+
+    it('plans a .claude/.gitignore that hides what skillam materializes', () => {
+      const skillDir = path.join(scratchRoot, 'store', 'skills', 'demo')
+      fs.mkdirSync(skillDir, { recursive: true })
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# demo\n')
+      new RoleSkillsRepository(db).replaceForRole(roleId, [{ skillSource: 'user', skillPath: skillDir }])
+
+      const plan = buildApplyPlan(deps, project(), roleId)
+      const ignore = plan.operations.find((op) => op.path === path.join(projectPath, '.claude', '.gitignore'))
+
+      expect(ignore).toMatchObject({ type: 'write-file' })
+      const content = (ignore as { content: string }).content
+      expect(content).toContain('settings.local.json')
+      expect(content).toContain('skills/')
+    })
   })
 })

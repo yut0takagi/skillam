@@ -17,7 +17,14 @@ import {
   type DesiredEntry,
   type MaterializeOperation
 } from './plan-materialize.js'
-import { readFileOrNull, readJsonObject, readCurrentEntry } from './project-state.js'
+import {
+  readFileOrNull,
+  readJsonObject,
+  readCurrentEntry,
+  settingsPathFor,
+  SETTINGS_RELATIVE_PATH
+} from './project-state.js'
+import { listTrackedPaths, isTracked, GitTrackedTargetError } from './git-tracked.js'
 
 export interface ApplyPlannerDeps {
   skills: RoleSkillsRepository
@@ -43,6 +50,19 @@ export interface ApplyPlan {
   operations: MaterializeOperation[]
   managed: ManagedState
 }
+
+const GITIGNORE_RELATIVE_PATH = path.join('.claude', '.gitignore')
+
+// Written alongside whatever skillam materializes so a shared repository does
+// not pick up this machine's symlinks. Only covers what skillam owns; a
+// settings.json the team committed is deliberately absent, because skillam
+// does not manage that file and must not start ignoring it on their behalf.
+const GITIGNORE_CONTENT = `# skillam が管理する範囲。このマシン固有のパスを指すためコミットしない。
+settings.local.json
+skills/
+agents/
+commands/
+`
 
 function formatJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`
@@ -92,7 +112,7 @@ function toRolePermissions(value: unknown): RolePermissionsShape {
 export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId: number): ApplyPlan {
   const previous = unionManagedStates(deps.history.listSinceLastSuccess(project.id))
 
-  const settingsPath = path.join(project.path, '.claude', 'settings.json')
+  const settingsPath = settingsPathFor(project.path)
   const settingsBefore = readFileOrNull(settingsPath)
   const settingsResult = planSettings({
     currentSettings: readJsonObject(settingsBefore, settingsPath),
@@ -126,6 +146,28 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
       continue
     }
     desired.push({ kind: 'file', path: `.claude/agents/${agent.name}.md`, content: agent.markdownBody })
+  }
+
+  // Only planned when there is something to hide. A role with no skills,
+  // agents or commands leaves no machine-local paths behind, so writing a
+  // .gitignore would be skillam touching a file for no reason.
+  if (desired.length > 0) {
+    desired.push({ kind: 'file', path: GITIGNORE_RELATIVE_PATH, content: GITIGNORE_CONTENT })
+  }
+
+  // Refuse before planning any write: a tracked destination means a commit
+  // would publish this machine's absolute paths to every other clone. The
+  // .gitignore skillam writes is exempt — committing that one is harmless and
+  // is in fact what a team would want.
+  const trackedPaths = listTrackedPaths(project.path)
+  if (trackedPaths.length > 0) {
+    const collisions = [
+      ...desired.filter((entry) => entry.path !== GITIGNORE_RELATIVE_PATH).map((entry) => entry.path),
+      SETTINGS_RELATIVE_PATH
+    ].filter((relativePath) => isTracked(trackedPaths, relativePath))
+    if (collisions.length > 0) {
+      throw new GitTrackedTargetError([...new Set(collisions)])
+    }
   }
 
   const projectRoot = path.resolve(project.path)

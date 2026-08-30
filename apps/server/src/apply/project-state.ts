@@ -69,3 +69,18 @@ export function readCurrentEntry(projectPath: string, relativePath: string): Cur
   }
   return { kind: 'other' }
 }
+
+// skillam writes permissions and hooks here, never to settings.json. In shared
+// repositories settings.json is a committed, team-owned file (verified on this
+// machine in CyberAgentAI/aoc-kob and yut0takagi/yacchaba-platform), so merging
+// into it would turn a local role assignment into a diff on the team's config.
+// settings.local.json is read by Claude Code the same way and is conventionally
+// gitignored.
+//
+// Apply and drift detection MUST resolve the same path: if they disagree,
+// every clean apply is immediately reported as drift.
+export const SETTINGS_RELATIVE_PATH = path.join('.claude', 'settings.local.json')
+
+export function settingsPathFor(projectPath: string): string {
+  return path.join(projectPath, SETTINGS_RELATIVE_PATH)
+}
