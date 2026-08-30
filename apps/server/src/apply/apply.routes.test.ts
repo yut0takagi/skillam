@@ -60,7 +60,7 @@ describe('apply routes', () => {
 
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.json().settingsFile.after)).toEqual({ permissions: { allow: ['Edit'] } })
-    expect(fs.existsSync(path.join(projectPath, '.claude', 'settings.json'))).toBe(false)
+    expect(fs.existsSync(path.join(projectPath, '.claude', 'settings.local.json'))).toBe(false)
   })
 
   it('returns 404 when previewing an unknown project', async () => {
@@ -103,7 +103,7 @@ describe('apply routes', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json().status).toBe('success')
     expect(
-      JSON.parse(fs.readFileSync(path.join(projectPath, '.claude', 'settings.json'), 'utf-8'))
+      JSON.parse(fs.readFileSync(path.join(projectPath, '.claude', 'settings.local.json'), 'utf-8'))
     ).toEqual({ permissions: { allow: ['Edit'] } })
 
     const history = await app.inject({ method: 'GET', url: `/projects/${projectId}/apply-history` })
@@ -220,7 +220,7 @@ describe('apply routes', () => {
 
   it('returns 409 from preview when the settings file cannot be parsed', async () => {
     fs.mkdirSync(path.join(projectPath, '.claude'), { recursive: true })
-    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.json'), '{ broken')
+    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.local.json'), '{ broken')
 
     const response = await app.inject({
       method: 'POST',
@@ -229,8 +229,8 @@ describe('apply routes', () => {
     })
 
     expect(response.statusCode).toBe(409)
-    expect(response.json().error).toContain('settings.json')
-    expect(fs.readFileSync(path.join(projectPath, '.claude', 'settings.json'), 'utf-8')).toBe('{ broken')
+    expect(response.json().error).toContain('settings.local.json')
+    expect(fs.readFileSync(path.join(projectPath, '.claude', 'settings.local.json'), 'utf-8')).toBe('{ broken')
   })
 
   it('returns an empty history for a project that was never applied', async () => {
@@ -308,7 +308,7 @@ describe('apply route: history recording fails after a successful write', () => 
       })
 
       expect(
-        JSON.parse(fs.readFileSync(path.join(projectPath, '.claude', 'settings.json'), 'utf-8'))
+        JSON.parse(fs.readFileSync(path.join(projectPath, '.claude', 'settings.local.json'), 'utf-8'))
       ).toEqual({ permissions: { allow: ['Edit'] } })
 
       expect(response.statusCode).toBe(500)

@@ -141,4 +141,36 @@ describe('scanMcpServers', () => {
       scanMcpServers({ claudeJsonPath: path.join(root, 'missing.json'), projectPaths: [projectPath] })
     ).toEqual([])
   })
+
+  // skillam writes MCP servers to .mcp.json, but a user may put them in
+  // settings.local.json by hand; a scan that ignores that file would drop them.
+  it('reads project-level servers from .claude/settings.local.json', () => {
+    const projectPath = path.join(root, 'from-local-settings')
+    fs.mkdirSync(path.join(projectPath, '.claude'), { recursive: true })
+    fs.writeFileSync(
+      path.join(projectPath, '.claude', 'settings.local.json'),
+      JSON.stringify({ mcpServers: { fromLocal: { command: 'local-cmd' } } })
+    )
+
+    expect(scanMcpServers({ claudeJsonPath: path.join(root, 'missing.json'), projectPaths: [projectPath] })).toEqual([
+      { source: 'project-local', name: 'fromLocal', command: { command: 'local-cmd' } }
+    ])
+  })
+
+  it('prefers .mcp.json over settings.local.json for a name defined in both', () => {
+    const projectPath = path.join(root, 'local-vs-mcp')
+    fs.mkdirSync(path.join(projectPath, '.claude'), { recursive: true })
+    fs.writeFileSync(
+      path.join(projectPath, '.claude', 'settings.local.json'),
+      JSON.stringify({ mcpServers: { shared: { command: 'from-local-settings' } } })
+    )
+    fs.writeFileSync(
+      path.join(projectPath, '.mcp.json'),
+      JSON.stringify({ mcpServers: { shared: { command: 'from-mcp-json' } } })
+    )
+
+    expect(scanMcpServers({ claudeJsonPath: path.join(root, 'missing.json'), projectPaths: [projectPath] })).toEqual([
+      { source: 'project-local', name: 'shared', command: { command: 'from-mcp-json' } }
+    ])
+  })
 })

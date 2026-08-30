@@ -39,7 +39,15 @@ export function scanMcpServers(input: ScanMcpServersInput): McpServerCandidate[]
   for (const projectPath of input.projectPaths) {
     const mcpJsonServers = readMcpServersObject(path.join(projectPath, '.mcp.json'))
     const settingsServers = readMcpServersObject(path.join(projectPath, '.claude', 'settings.json'))
-    const merged: Record<string, unknown> = { ...settingsServers, ...mcpJsonServers }
+    const localSettingsServers = readMcpServersObject(path.join(projectPath, '.claude', 'settings.local.json'))
+    // Later spreads win. .mcp.json is the most specific declaration and takes
+    // precedence; settings.local.json (where skillam and per-machine overrides
+    // live) beats the shared settings.json.
+    const merged: Record<string, unknown> = {
+      ...settingsServers,
+      ...localSettingsServers,
+      ...mcpJsonServers
+    }
     for (const [name, command] of Object.entries(merged)) {
       candidates.push({ source: 'project-local', name, command })
     }

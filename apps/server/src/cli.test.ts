@@ -61,7 +61,7 @@ describe('runCheck', () => {
 
   it('exits 1 when a recorded permission is gone', async () => {
     await registerAndApply()
-    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.json'), JSON.stringify({ permissions: { allow: [] } }))
+    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { allow: [] } }))
 
     const result = await runCheck(['check'], { dbPath })
 
@@ -125,7 +125,7 @@ describe('runCheck', () => {
 
   it('--json emits parseable JSON carrying the same verdict', async () => {
     await registerAndApply()
-    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.json'), JSON.stringify({ permissions: { allow: [] } }))
+    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { allow: [] } }))
 
     const result = await runCheck(['check', '--json'], { dbPath })
 
@@ -169,7 +169,7 @@ describe('runCheck', () => {
 
   it('names each drifted item in the human output', async () => {
     await registerAndApply()
-    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.json'), JSON.stringify({ permissions: { allow: [] } }))
+    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { allow: [] } }))
 
     const result = await runCheck(['check'], { dbPath })
 
@@ -189,7 +189,7 @@ describe('runCheck', () => {
   it('exits 2 when the config cannot be parsed', async () => {
     await registerAndApply()
     fs.mkdirSync(path.join(projectPath, '.claude'), { recursive: true })
-    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.json'), '{ broken')
+    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.local.json'), '{ broken')
 
     const result = await runCheck(['check'], { dbPath })
 
@@ -197,21 +197,21 @@ describe('runCheck', () => {
   })
 
   // Decision: exit 2 ("could not run"), not exit 1 ("drift"). An unparsable
-  // settings.json means skillam could not determine whether drift exists at
+  // settings.local.json means skillam could not determine whether drift exists at
   // all for this project — that is a different failure mode from "drift was
   // found and reported", which is exactly what exit code 1 promises to CI.
   // Collapsing the two into exit 1 would make a CI failure ambiguous between
   // "someone edited a managed setting" and "the config is broken JSON",
   // which is the same ambiguity the 1-vs-2 split exists to prevent (see
   // docs/superpowers/plans/2026-08-27-skillam-phase3b-drift.md).
-  it('exits 2, not 1, when settings.json is invalid JSON — malformed config could not be checked, it did not report a drift finding', async () => {
+  it('exits 2, not 1, when settings.local.json is invalid JSON — malformed config could not be checked, it did not report a drift finding', async () => {
     await registerAndApply()
-    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.json'), '{ this is not json')
+    fs.writeFileSync(path.join(projectPath, '.claude', 'settings.local.json'), '{ this is not json')
 
     const result = await runCheck(['check'], { dbPath })
 
     expect(result.code).toBe(2)
-    expect(result.output).toContain('settings.json')
+    expect(result.output).toContain('settings.local.json')
     expect(result.output).toContain('JSON')
     // Must read as "this file is malformed", never as drift/symlink language.
     expect(result.output).not.toContain('materialized-changed')

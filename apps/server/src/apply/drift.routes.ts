@@ -5,7 +5,13 @@ import type { Project } from '../projects/projects.types.js'
 import type { ApplyHistoryRepository } from './apply-history.repository.js'
 import { detectDrift, type DriftItem } from './detect-drift.js'
 import { EMPTY_MANAGED_STATE } from './managed-state.js'
-import { readFileOrNull, readJsonObject, readCurrentEntry, UnreadableConfigError } from './project-state.js'
+import {
+  readFileOrNull,
+  readJsonObject,
+  readCurrentEntry,
+  settingsPathFor,
+  UnreadableConfigError
+} from './project-state.js'
 import type { CurrentEntry } from './plan-materialize.js'
 
 export interface DriftRouteDeps {
@@ -44,7 +50,7 @@ export function buildDriftReport(project: Project, deps: DriftRouteDeps): DriftR
     }
   }
 
-  const settingsPath = path.join(project.path, '.claude', 'settings.json')
+  const settingsPath = settingsPathFor(project.path)
   const mcpPath = path.join(project.path, '.mcp.json')
 
   const settings = readJsonObject(readFileOrNull(settingsPath), settingsPath)
