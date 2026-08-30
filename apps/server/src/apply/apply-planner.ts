@@ -25,6 +25,12 @@ import {
   SETTINGS_RELATIVE_PATH
 } from './project-state.js'
 import { listTrackedPaths, isTracked, GitTrackedTargetError } from './git-tracked.js'
+import {
+  composeRoles,
+  type BindingOrigin,
+  type ComposedRole,
+  type RoleBinding
+} from './compose-roles.js'
 
 export interface ApplyPlannerDeps {
   skills: RoleSkillsRepository
@@ -40,10 +46,24 @@ export interface FileChange {
   after: string
 }
 
+// Which binding contributed each materialized item. Surfaced so the preview
+// can answer "why is this here?" — with scope and group bindings an entry can
+// arrive without anyone having chosen it for this project specifically.
+export interface PlanOrigin {
+  kind: 'skill' | 'agent' | 'mcpServer'
+  name: string
+  origin: BindingOrigin
+}
+
 export interface ApplyPlan {
   projectId: number
   projectPath: string
-  roleId: number
+  // The role this plan applied, or null when several bindings were composed
+  // and no single role describes it. apply_history.role_id is nullable for
+  // exactly this reason; naming an arbitrary one of the roles would make the
+  // history claim an apply that never happened that way.
+  roleId: number | null
+  origins: PlanOrigin[]
   settingsFile: FileChange
   mcpFile: FileChange
   mcpAfterObject: Record<string, unknown>
@@ -109,14 +129,60 @@ function toRolePermissions(value: unknown): RolePermissionsShape {
   }
 }
 
+// One role bound to a project, before its material is read from the database.
+export interface RoleBindingRef {
+  roleId: number
+  origin: BindingOrigin
+  priority: number
+}
+
+// Reads each bound role's material and composes it into a single set. This is
+// the only part of planning that knows about multiple roles; everything below
+// works from the composed result and cannot tell how many roles produced it.
+function composeBindings(deps: ApplyPlannerDeps, refs: RoleBindingRef[]): ComposedRole {
+  const bindings: RoleBinding[] = refs.map((ref) => ({
+    roleId: ref.roleId,
+    origin: ref.origin,
+    priority: ref.priority,
+    skills: deps.skills.listForRole(ref.roleId).map((skill) => ({
+      skillSource: skill.skillSource,
+      skillPath: skill.skillPath
+    })),
+    agents: deps.agents.listForRole(ref.roleId).map((agent) => ({
+      name: agent.name,
+      markdownBody: agent.markdownBody,
+      source: agent.source,
+      sourcePath: agent.sourcePath
+    })),
+    mcpServers: deps.mcpServers.listForRole(ref.roleId).map((server) => ({
+      name: server.name,
+      command: server.command,
+      env: server.env
+    })),
+    permissions: toRolePermissions(deps.permissions.getForRole(ref.roleId)?.permissions)
+  }))
+  return composeRoles(bindings)
+}
+
+// Kept for the callers that bind exactly one role. Composing a single binding
+// is the identity operation, so this stays behaviour-preserving.
 export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId: number): ApplyPlan {
+  return buildApplyPlanForRoles(deps, project, [{ roleId, origin: { kind: 'direct' }, priority: 0 }])
+}
+
+export function buildApplyPlanForRoles(
+  deps: ApplyPlannerDeps,
+  project: Project,
+  refs: RoleBindingRef[]
+): ApplyPlan {
+  const composed = composeBindings(deps, refs)
   const previous = unionManagedStates(deps.history.listSinceLastSuccess(project.id))
 
   const settingsPath = settingsPathFor(project.path)
   const settingsBefore = readFileOrNull(settingsPath)
   const settingsResult = planSettings({
     currentSettings: readJsonObject(settingsBefore, settingsPath),
-    rolePermissions: toRolePermissions(deps.permissions.getForRole(roleId)?.permissions),
+    rolePermissions: composed.permissions,
     previous
   })
 
@@ -124,7 +190,7 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
   const mcpBefore = readFileOrNull(mcpPath)
   const mcpResult = planMcp({
     currentMcpJson: readJsonObject(mcpBefore, mcpPath),
-    roleServers: deps.mcpServers.listForRole(roleId).map((server) => ({
+    roleServers: composed.mcpServers.map((server) => ({
       name: server.name,
       command: server.command,
       env: server.env
@@ -132,20 +198,26 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
     previous
   })
 
+  const origins: PlanOrigin[] = []
   const desired: DesiredEntry[] = []
-  for (const skill of deps.skills.listForRole(roleId)) {
+  for (const skill of composed.skills) {
     desired.push({
       kind: 'link',
-      path: `.claude/skills/${path.basename(skill.skillPath)}`,
+      path: `.claude/skills/${skill.name}`,
       target: skill.skillPath
     })
+    origins.push({ kind: 'skill', name: skill.name, origin: skill.origin })
   }
-  for (const agent of deps.agents.listForRole(roleId)) {
+  for (const agent of composed.agents) {
     if (agent.source === 'reference') {
       desired.push({ kind: 'link', path: `.claude/agents/${agent.name}.md`, target: agent.sourcePath })
-      continue
+    } else {
+      desired.push({ kind: 'file', path: `.claude/agents/${agent.name}.md`, content: agent.markdownBody })
     }
-    desired.push({ kind: 'file', path: `.claude/agents/${agent.name}.md`, content: agent.markdownBody })
+    origins.push({ kind: 'agent', name: agent.name, origin: agent.origin })
+  }
+  for (const server of composed.mcpServers) {
+    origins.push({ kind: 'mcpServer', name: server.name, origin: server.origin })
   }
 
   // Only planned when there is something to hide. A role with no skills,
@@ -202,7 +274,8 @@ export function buildApplyPlan(deps: ApplyPlannerDeps, project: Project, roleId:
   return {
     projectId: project.id,
     projectPath: project.path,
-    roleId,
+    roleId: refs.length === 1 ? refs[0].roleId : null,
+    origins,
     settingsFile: {
       path: settingsPath,
       before: settingsBefore,

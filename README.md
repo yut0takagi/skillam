@@ -244,6 +244,28 @@ docs/
 
 適用エンジンは「計画（純関数）」と「書き込み（副作用）」を分けてある。`plan-settings` / `plan-mcp` / `plan-materialize` は現在の状態とロール定義を受け取って次の状態を返すだけで、ファイルシステムに触れない。おかげでマージ判定のほとんどがファイルシステム無しでテストできる。
 
+## 環境変数
+
+すべて任意。指定しなければ既定値が使われる。
+
+| 変数 | 既定値 | 用途 |
+|---|---|---|
+| `SKILLAM_DB_PATH` | `~/.skillam/skillam.db` | データベースの場所 |
+| `SKILLAM_USER_SKILLS_ROOT` | `~/.claude/skills` | Skill をスキャンする先 |
+| `SKILLAM_USER_AGENTS_ROOT` | `~/.claude/agents` | Agent をスキャンする先 |
+| `SKILLAM_PLUGINS_CACHE_ROOT` | `~/.claude/plugins/cache` | プラグイン由来の Skill / Agent をスキャンする先 |
+| `SKILLAM_CLAUDE_JSON_PATH` | `~/.claude.json` | MCP サーバー定義の読み取り元 |
+| `SKILLAM_DEV_URL` | （なし） | デスクトップアプリが読み込む URL。開発時に Vite を指す |
+
+先頭の `~` は展開される。空文字（`SKILLAM_USER_SKILLS_ROOT=`）は未指定と同じ扱い。
+
+```bash
+# 別マシンから持ってきた ~/.claude を読み込ませる
+SKILLAM_USER_SKILLS_ROOT=~/backup/claude/skills npm run dev
+```
+
+カタログのスキャン先を上書きすると、**適用先ではなく読み取り元**が変わる。実際に何が書き込まれるかはプレビューで確認できる。
+
 ## 開発
 
 ```bash

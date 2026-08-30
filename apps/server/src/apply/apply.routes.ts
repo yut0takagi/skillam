@@ -1,7 +1,14 @@
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import type { ProjectsRepository } from '../projects/projects.repository.js'
 import type { RolesRepository } from '../roles/roles.repository.js'
-import { buildApplyPlan, type ApplyPlan, type ApplyPlannerDeps } from './apply-planner.js'
+import {
+  buildApplyPlanForRoles,
+  type ApplyPlan,
+  type ApplyPlannerDeps,
+  type RoleBindingRef
+} from './apply-planner.js'
+import { RoleCompositionConflictError } from './compose-roles.js'
+import type { ProjectRolesRepository } from '../projects/project-roles.repository.js'
 import { executeApplyPlan, type ApplyExecutorDeps } from './apply-executor.js'
 import type { ApplyHistoryRepository } from './apply-history.repository.js'
 import { MaterializeConflictError } from './plan-materialize.js'
@@ -10,6 +17,7 @@ import { UnsupportedSettingsError } from './plan-settings.js'
 export interface ApplyRouteDeps extends ApplyPlannerDeps, ApplyExecutorDeps {
   projects: ProjectsRepository
   roles: RolesRepository
+  projectRoles: ProjectRolesRepository
   history: ApplyHistoryRepository
 }
 
@@ -22,17 +30,36 @@ function readRoleId(body: unknown): number | undefined {
 }
 
 function isPlanConflict(error: unknown): error is Error {
-  return error instanceof MaterializeConflictError || error instanceof UnsupportedSettingsError
+  return (
+    error instanceof MaterializeConflictError ||
+    error instanceof UnsupportedSettingsError ||
+    // Two bindings disagreeing is the same class of problem as a destination
+    // clash: the request is well-formed, but the state it describes cannot be
+    // applied without a person choosing. 409, not 500.
+    error instanceof RoleCompositionConflictError
+  )
+}
+
+// An explicit roleId applies just that role — this is how the UI previews a
+// role before binding it. Without one, the project's own bindings are used,
+// which is what an unattended apply (the CLI, a re-apply) should follow.
+function resolveBindings(deps: ApplyRouteDeps, projectId: number, roleId: number | undefined): RoleBindingRef[] {
+  if (roleId !== undefined) {
+    return [{ roleId, origin: { kind: 'direct' }, priority: 0 }]
+  }
+  return deps.projectRoles
+    .listForProject(projectId)
+    .map((bound) => ({ roleId: bound.roleId, origin: { kind: 'direct' as const }, priority: bound.priority }))
 }
 
 function planOrConflict(
   deps: ApplyRouteDeps,
-  project: Parameters<typeof buildApplyPlan>[1],
-  roleId: number,
+  project: Parameters<typeof buildApplyPlanForRoles>[1],
+  bindings: RoleBindingRef[],
   reply: FastifyReply
 ): ApplyPlan | undefined {
   try {
-    return buildApplyPlan(deps, project, roleId)
+    return buildApplyPlanForRoles(deps, project, bindings)
   } catch (error) {
     if (isPlanConflict(error)) {
       reply.status(409).send({ error: error.message })
@@ -46,18 +73,21 @@ export const applyRoutes: FastifyPluginAsync<ApplyRouteDeps> = async (app, deps)
   app.post<{ Params: { id: string }; Body: { roleId: number } }>(
     '/projects/:id/apply/preview',
     async (request, reply) => {
-      const roleId = readRoleId(request.body)
-      if (roleId === undefined) {
-        return reply.status(400).send({ error: 'roleId is required' })
-      }
       const project = deps.projects.getById(Number(request.params.id))
       if (!project) {
         return reply.status(404).send({ error: 'project not found' })
       }
-      if (!deps.roles.getById(roleId)) {
+      const roleId = readRoleId(request.body)
+      if (roleId !== undefined && !deps.roles.getById(roleId)) {
         return reply.status(404).send({ error: 'role not found' })
       }
-      const plan = planOrConflict(deps, project, roleId, reply)
+      const bindings = resolveBindings(deps, project.id, roleId)
+      if (bindings.length === 0) {
+        return reply
+          .status(400)
+          .send({ error: 'roleId is required（プロジェクトにロールが割り当てられていません）' })
+      }
+      const plan = planOrConflict(deps, project, bindings, reply)
       if (!plan) {
         return reply
       }
@@ -68,19 +98,22 @@ export const applyRoutes: FastifyPluginAsync<ApplyRouteDeps> = async (app, deps)
   app.post<{ Params: { id: string }; Body: { roleId: number } }>(
     '/projects/:id/apply',
     async (request, reply) => {
-      const roleId = readRoleId(request.body)
-      if (roleId === undefined) {
-        return reply.status(400).send({ error: 'roleId is required' })
-      }
       const project = deps.projects.getById(Number(request.params.id))
       if (!project) {
         return reply.status(404).send({ error: 'project not found' })
       }
-      if (!deps.roles.getById(roleId)) {
+      const roleId = readRoleId(request.body)
+      if (roleId !== undefined && !deps.roles.getById(roleId)) {
         return reply.status(404).send({ error: 'role not found' })
       }
+      const bindings = resolveBindings(deps, project.id, roleId)
+      if (bindings.length === 0) {
+        return reply
+          .status(400)
+          .send({ error: 'roleId is required（プロジェクトにロールが割り当てられていません）' })
+      }
 
-      const plan = planOrConflict(deps, project, roleId, reply)
+      const plan = planOrConflict(deps, project, bindings, reply)
       if (!plan) {
         return reply
       }
@@ -98,7 +131,7 @@ export const applyRoutes: FastifyPluginAsync<ApplyRouteDeps> = async (app, deps)
         try {
           const entry = deps.history.record({
             projectId: project.id,
-            roleId,
+            roleId: plan.roleId,
             diff,
             managed: plan.managed,
             status: 'failed',
@@ -122,12 +155,17 @@ export const applyRoutes: FastifyPluginAsync<ApplyRouteDeps> = async (app, deps)
       try {
         const entry = deps.history.record({
           projectId: project.id,
-          roleId,
+          roleId: plan.roleId,
           diff,
           managed: plan.managed,
           status: 'success'
         })
-        deps.projects.markApplied(project.id, roleId)
+        // projects.last_applied_role_id names one role. A composed apply has
+        // none, so the marker is left alone rather than pointing at an
+        // arbitrary member of the set.
+        if (plan.roleId !== null) {
+          deps.projects.markApplied(project.id, plan.roleId)
+        }
         return { status: 'success', historyId: entry.id, plan }
       } catch (error) {
         // The apply itself already succeeded on disk by this point; only
