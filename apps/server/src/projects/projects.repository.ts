@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3'
 import { normalizePath } from '../lib/paths.js'
 import type { CreateProjectInput, Project, UpdateProjectInput } from './projects.types.js'
 
-interface ProjectRow {
+export interface ProjectRow {
   id: number
   path: string
   name: string
@@ -14,7 +14,10 @@ interface ProjectRow {
   updated_at: string
 }
 
-function toProject(row: ProjectRow): Project {
+// Exported so other repositories that join onto projects (group
+// membership, and later scope matching) map rows the same way rather
+// than each restating the column-to-field translation.
+export function toProject(row: ProjectRow): Project {
   return {
     id: row.id,
     path: row.path,

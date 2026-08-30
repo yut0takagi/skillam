@@ -11,7 +11,7 @@ skillam は Skill を IAM のように配るツール（**Skill + IAM = skillam*
 | Policy | Role | できている |
 | Principal | Project | できている |
 | Binding | `project_roles` | **段階1で実際に効くようにした** |
-| Group / Folder | グループ / スコープ | **これから（段階2・3）** |
+| Group / Folder | グループ / スコープ | グループは**できた**（段階2）。スコープはこれから（段階3） |
 
 設計は [ROLE-COMPOSITION.md](ROLE-COMPOSITION.md) に全部書いてある。
 実装に入る前にそこを読むこと。この文書は進捗と申し送りだけ。
@@ -32,7 +32,7 @@ skillam は Skill を IAM のように配るツール（**Skill + IAM = skillam*
 | 段階 | 内容 | 状態 |
 |---|---|---|
 | 1 | 複数ロール合成 | **完了**（PR #12） |
-| 2 | グループ — `groups` / `project_groups` / `group_roles` | 未着手 |
+| 2 | グループ — `groups` / `project_groups` / `group_roles` | **完了** |
 | 3 | スコープ — `scopes` / `scope_roles`、パス前方一致 | 未着手 |
 | 4 | UI — 群の管理画面、プレビューの出どころ表示 | 未着手 |
 
@@ -57,17 +57,39 @@ skillam は Skill を IAM のように配るツール（**Skill + IAM = skillam*
 単一バインディングの合成は恒等変換なので既存の呼び出し側は無傷
 （同一プランを返すテストで固定済み）。
 
-## 次にやること（段階2: グループ）
+## 段階2で作ったもの
 
-1. マイグレーション `0005_groups.sql` — スキーマは
-   [ROLE-COMPOSITION.md](ROLE-COMPOSITION.md#スキーマ) にそのまま書いてある
-2. `GroupsRepository` / `ProjectGroupsRepository` / `GroupRolesRepository`
-3. `apply.routes.ts` の `resolveBindings` にグループ経路を足す
-   （いま `project_roles` しか見ていない）
-4. グループ CRUD の API
+`0005_groups.sql` で `groups` / `project_groups` / `group_roles` を追加。
+設計書のスキーマそのままで、`scopes` は段階3に残してある。
 
-`composeRoles` は `origin: { kind: 'group', name }` を既に受け付ける。
-合成側に足すものはない。
+- `src/groups/` — `GroupsRepository` / `ProjectGroupsRepository` /
+  `GroupRolesRepository` と CRUD の API（`groups.routes.ts`）
+- `GroupRolesRepository.listForProject` が、プロジェクトが属する全グループの
+  バインディングを**1クエリ**で返す。グループ名を一緒に返すのは、
+  `composeRoles` が各項目に `{ kind: 'group', name }` を刻むため。
+  後から名前を引くとバインディング1件ごとに往復が増える
+- `resolveBindings` はグループ経路と直接経路を両方集めて返す。
+  並び順は合成の優先順位を決めない（`composeRoles` が origin で自分で並べる）
+
+`composeRoles` には**手を入れていない**。段階1の設計どおり、
+バインディングの経路を足すだけで済んだ。
+
+## 次にやること（段階3: スコープ）
+
+1. マイグレーション `0006_scopes.sql` — `scopes` / `scope_roles`。
+   スキーマは [ROLE-COMPOSITION.md](ROLE-COMPOSITION.md#スキーマ) にある
+2. `ScopesRepository` / `ScopeRolesRepository`
+3. `resolveBindings` にスコープ経路を足す。**パスの前方一致**で当てる。
+   `composeRoles` は深いパスほど強いものとして既に並べ替える
+   （`compareBindings` を見ること）
+4. スコープ CRUD の API
+
+`composeRoles` は `origin: { kind: 'scope', path }` も既に受け付ける。
+段階2と同じく、合成側に足すものはないはず。
+
+**前方一致は文字列比較で書かないこと。** `~/work` が `~/workspace` に
+当たってしまう。`path.sep` 区切りで境界を見るか、`path.relative` が
+`..` で始まらないことを確かめる。
 
 ### TDD で進めること
 
@@ -121,6 +143,18 @@ skillam は Skill を IAM のように配るツール（**Skill + IAM = skillam*
 **正しくは `npm test`**（各 workspace の設定を使う）。
 個別なら `npm test -w @skillam/server` / `-w @skillam/web`。
 
+### 5. 単一ロールでも「直接バインディング」とは限らない（段階2で発覚）
+
+`ApplyPlan.roleId` は `refs.length === 1 ? refs[0].roleId : null` だった。
+バインディングが1件なら、それが**グループ経由でも**そのロールを記録する。
+
+結果、`project_roles` が空なのに `projects.last_applied_role_id` に値が入り、
+**存在しない直接バインディングを主張する**状態になった（罠2と同じ嘘）。
+`refs[0].origin.kind === 'direct'` も条件に足して修正済み。
+
+段階3でスコープを足すと同じ経路をもう一度通る。`origin.kind` を見ずに
+「1件なら記録」と書くと再発する。
+
 ## 検証コマンド
 
 ```bash
@@ -129,7 +163,7 @@ npx tsc --noEmit -p apps/server/tsconfig.json
 npx tsc --noEmit -p apps/web/tsconfig.json
 ```
 
-現在: server 472 / web 124 通過、型は server・web とも clean。
+現在: server 539 / web 124 通過、型は server・web とも clean。
 
 テストはすべて一時ディレクトリとインメモリ DB を使う。実際の `~/.claude` や
 `~/.skillam` には触れない。**この約束は環境変数の優先順位（引数 > 環境変数 >

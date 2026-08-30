@@ -9,6 +9,7 @@ import {
 } from './apply-planner.js'
 import { RoleCompositionConflictError } from './compose-roles.js'
 import type { ProjectRolesRepository } from '../projects/project-roles.repository.js'
+import type { GroupRolesRepository } from '../groups/group-roles.repository.js'
 import { executeApplyPlan, type ApplyExecutorDeps } from './apply-executor.js'
 import type { ApplyHistoryRepository } from './apply-history.repository.js'
 import { MaterializeConflictError } from './plan-materialize.js'
@@ -18,6 +19,7 @@ export interface ApplyRouteDeps extends ApplyPlannerDeps, ApplyExecutorDeps {
   projects: ProjectsRepository
   roles: RolesRepository
   projectRoles: ProjectRolesRepository
+  groupRoles: GroupRolesRepository
   history: ApplyHistoryRepository
 }
 
@@ -41,15 +43,28 @@ function isPlanConflict(error: unknown): error is Error {
 }
 
 // An explicit roleId applies just that role — this is how the UI previews a
-// role before binding it. Without one, the project's own bindings are used,
-// which is what an unattended apply (the CLI, a re-apply) should follow.
+// role before binding it. Without one, every binding path reaching the project
+// is followed, which is what an unattended apply (the CLI, a re-apply) should
+// do.
+//
+// Group bindings come first only so the list reads weakest-to-strongest;
+// composeRoles sorts by origin itself, so the order here does not decide
+// precedence.
 function resolveBindings(deps: ApplyRouteDeps, projectId: number, roleId: number | undefined): RoleBindingRef[] {
   if (roleId !== undefined) {
     return [{ roleId, origin: { kind: 'direct' }, priority: 0 }]
   }
-  return deps.projectRoles
+  const fromGroups: RoleBindingRef[] = deps.groupRoles
+    .listForProject(projectId)
+    .map((bound) => ({
+      roleId: bound.roleId,
+      origin: { kind: 'group' as const, name: bound.groupName },
+      priority: bound.priority
+    }))
+  const direct: RoleBindingRef[] = deps.projectRoles
     .listForProject(projectId)
     .map((bound) => ({ roleId: bound.roleId, origin: { kind: 'direct' as const }, priority: bound.priority }))
+  return [...fromGroups, ...direct]
 }
 
 function planOrConflict(

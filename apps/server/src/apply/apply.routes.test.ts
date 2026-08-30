@@ -537,3 +537,271 @@ describe('apply routes — bound roles', () => {
     expect(history[0].roleId).toBe(only)
   })
 })
+
+// 段階2: roles now reach a project through the groups it belongs to, not only
+// through project_roles. composeRoles already understood group origins; these
+// cover the resolution step that feeds them to it.
+describe('apply routes — group bindings', () => {
+  let db: Database.Database
+  let app: FastifyInstance
+  let scratchRoot: string
+  let projectPath: string
+  let projectId: number
+
+  beforeEach(async () => {
+    db = openDb(':memory:')
+    runMigrations(db)
+    scratchRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'skillam-apply-groups-test-')))
+    projectPath = path.join(scratchRoot, 'project')
+    fs.mkdirSync(projectPath, { recursive: true })
+    app = buildApp(db, new InMemoryKeychainClient())
+    projectId = (
+      await app.inject({ method: 'POST', url: '/projects', payload: { path: projectPath, name: 'p' } })
+    ).json().id
+  })
+
+  afterEach(() => {
+    fs.rmSync(scratchRoot, { recursive: true, force: true })
+  })
+
+  async function createRole(name: string, permissions: { allow?: string[]; deny?: string[] }): Promise<number> {
+    const id = (await app.inject({ method: 'POST', url: '/roles', payload: { name } })).json().id
+    await app.inject({ method: 'PUT', url: `/roles/${id}/permissions`, payload: { permissions } })
+    return id
+  }
+
+  async function createGroup(name: string, roleIds: number[]): Promise<number> {
+    const id = (await app.inject({ method: 'POST', url: '/groups', payload: { name } })).json().id
+    await app.inject({ method: 'PUT', url: `/groups/${id}/roles`, payload: { roleIds } })
+    return id
+  }
+
+  async function joinGroups(groupIds: number[]): Promise<void> {
+    await app.inject({ method: 'PUT', url: `/projects/${projectId}/groups`, payload: { groupIds } })
+  }
+
+  it('applies a role bound through a group the project belongs to', async () => {
+    const roleId = await createRole('ts', { allow: ['Read(*)'] })
+    const groupId = await createGroup('typescript', [roleId])
+    await joinGroups([groupId])
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.json().settingsFile.after).permissions.allow).toContain('Read(*)')
+  })
+
+  it('combines group roles with the project’s direct roles', async () => {
+    const groupRole = await createRole('ts', { allow: ['Read(*)'] })
+    const directRole = await createRole('personal', { allow: ['Edit'] })
+    const groupId = await createGroup('typescript', [groupRole])
+    await joinGroups([groupId])
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [directRole] }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    const allow = JSON.parse(response.json().settingsFile.after).permissions.allow
+    expect(allow).toContain('Read(*)')
+    expect(allow).toContain('Edit')
+  })
+
+  it('collects roles from every group the project belongs to', async () => {
+    const first = await createRole('ts', { allow: ['Read(*)'] })
+    const second = await createRole('py', { allow: ['Edit'] })
+    await joinGroups([await createGroup('typescript', [first]), await createGroup('python', [second])])
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    const allow = JSON.parse(response.json().settingsFile.after).permissions.allow
+    expect(allow).toContain('Read(*)')
+    expect(allow).toContain('Edit')
+  })
+
+  // The point of the whole precedence design: a group-level deny outranks a
+  // directly-bound allow, so an org-wide restriction cannot be undone by
+  // binding a personal role to the project.
+  it('lets a group deny override an allow from a direct role', async () => {
+    const groupRole = await createRole('company', { deny: ['Bash(rm -rf*)'] })
+    const directRole = await createRole('personal', { allow: ['Bash(rm -rf*)', 'Read(*)'] })
+    await joinGroups([await createGroup('company', [groupRole])])
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [directRole] }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    const settings = JSON.parse(response.json().settingsFile.after)
+    expect(settings.permissions.allow).not.toContain('Bash(rm -rf*)')
+    expect(settings.permissions.allow).toContain('Read(*)')
+    expect(settings.permissions.deny).toContain('Bash(rm -rf*)')
+  })
+
+  it('reports the group as the origin of a skill it contributed', async () => {
+    const roleId = (await app.inject({ method: 'POST', url: '/roles', payload: { name: 'ts' } })).json().id
+    const skillDir = path.join(scratchRoot, 'skills', 'playwright')
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# playwright\n')
+    new RoleSkillsRepository(db).replaceForRole(roleId, [{ skillSource: 'user', skillPath: skillDir }])
+    await joinGroups([await createGroup('typescript', [roleId])])
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.json().origins).toContainEqual({
+      kind: 'skill',
+      name: 'playwright',
+      origin: { kind: 'group', name: 'typescript' }
+    })
+  })
+
+  it('reports 409 when a group role and a direct role disagree on the same name', async () => {
+    const groupRole = (await app.inject({ method: 'POST', url: '/roles', payload: { name: 'a' } })).json().id
+    const directRole = (await app.inject({ method: 'POST', url: '/roles', payload: { name: 'b' } })).json().id
+    const one = path.join(scratchRoot, 'one', 'playwright')
+    const two = path.join(scratchRoot, 'two', 'playwright')
+    for (const dir of [one, two]) {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), '# playwright\n')
+    }
+    const skills = new RoleSkillsRepository(db)
+    skills.replaceForRole(groupRole, [{ skillSource: 'user', skillPath: one }])
+    skills.replaceForRole(directRole, [{ skillSource: 'user', skillPath: two }])
+    await joinGroups([await createGroup('typescript', [groupRole])])
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [directRole] }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toContain('playwright')
+  })
+
+  // An explicit roleId is how the UI previews one role in isolation. Group
+  // membership must not leak into that preview, or it would show more than the
+  // role being examined.
+  it('ignores group roles when an explicit roleId is given', async () => {
+    const groupRole = await createRole('ts', { allow: ['Read(*)'] })
+    const explicit = await createRole('explicit', { allow: ['Edit'] })
+    await joinGroups([await createGroup('typescript', [groupRole])])
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: { roleId: explicit }
+    })
+
+    const allow = JSON.parse(response.json().settingsFile.after).permissions.allow
+    expect(allow).toContain('Edit')
+    expect(allow).not.toContain('Read(*)')
+  })
+
+  it('reports 400 when the project’s only group has no roles', async () => {
+    await joinGroups([await createGroup('empty', [])])
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  // Leaving a group has to actually withdraw what it granted; otherwise a
+  // membership change looks applied but the permission stays on disk.
+  it('stops applying a group’s role once the project leaves the group', async () => {
+    const roleId = await createRole('ts', { allow: ['Read(*)'] })
+    const groupId = await createGroup('typescript', [roleId])
+    await joinGroups([groupId])
+    await joinGroups([])
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(400)
+  })
+
+  // projects.last_applied_role_id and apply_history.role_id name a role the
+  // project is directly bound to. A role that only arrived through a group is
+  // not one, and recording it there would claim a direct binding that does not
+  // exist — the same class of lie as naming one role out of a composed set.
+  it('records no role when the only binding came through a group', async () => {
+    const roleId = await createRole('ts', { allow: ['Read(*)'] })
+    await joinGroups([await createGroup('typescript', [roleId])])
+
+    const applied = await app.inject({ method: 'POST', url: `/projects/${projectId}/apply`, payload: {} })
+    expect(applied.statusCode).toBe(200)
+
+    expect(new ApplyHistoryRepository(db).listForProject(projectId)[0].roleId).toBeNull()
+    expect(new ProjectsRepository(db).getById(projectId)?.lastAppliedRoleId).toBeNull()
+  })
+
+  it('still records the role when a single direct binding was applied', async () => {
+    const roleId = await createRole('solo', { allow: ['Edit'] })
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [roleId] }
+    })
+
+    await app.inject({ method: 'POST', url: `/projects/${projectId}/apply`, payload: {} })
+
+    expect(new ApplyHistoryRepository(db).listForProject(projectId)[0].roleId).toBe(roleId)
+  })
+
+  // Composition is a union, so a role reaching the project both directly and
+  // through a group must contribute once rather than colliding with itself.
+  it('applies a role bound both directly and through a group without conflict', async () => {
+    const roleId = await createRole('shared', { allow: ['Read(*)'] })
+    await joinGroups([await createGroup('typescript', [roleId])])
+    await app.inject({
+      method: 'PUT',
+      url: `/projects/${projectId}/roles`,
+      payload: { roleIds: [roleId] }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/projects/${projectId}/apply/preview`,
+      payload: {}
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.json().settingsFile.after).permissions.allow).toEqual(['Read(*)'])
+  })
+})

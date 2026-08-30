@@ -58,10 +58,13 @@ export interface PlanOrigin {
 export interface ApplyPlan {
   projectId: number
   projectPath: string
-  // The role this plan applied, or null when several bindings were composed
-  // and no single role describes it. apply_history.role_id is nullable for
-  // exactly this reason; naming an arbitrary one of the roles would make the
-  // history claim an apply that never happened that way.
+  // The single directly-bound role this plan applied, or null. Null when
+  // several bindings were composed and no one role describes the result, and
+  // also when the lone binding arrived through a group or a scope: both
+  // apply_history.role_id and projects.last_applied_role_id describe a role
+  // the project is bound to, so recording an indirect one would claim a
+  // direct binding that does not exist. Naming an arbitrary member of a
+  // composed set would be the same kind of lie.
   roleId: number | null
   origins: PlanOrigin[]
   settingsFile: FileChange
@@ -274,7 +277,7 @@ export function buildApplyPlanForRoles(
   return {
     projectId: project.id,
     projectPath: project.path,
-    roleId: refs.length === 1 ? refs[0].roleId : null,
+    roleId: refs.length === 1 && refs[0].origin.kind === 'direct' ? refs[0].roleId : null,
     origins,
     settingsFile: {
       path: settingsPath,
