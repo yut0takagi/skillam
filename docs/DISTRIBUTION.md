@@ -66,6 +66,23 @@ spctl -a -vvv -t install apps/desktop/release/mac-arm64/skillam.app
 `accepted` になれば完了。`rejected — source=Unnotarized Developer ID` は
 「署名は有効だが公証されていない」状態。
 
+## Homebrew Cask で配る
+
+`brew install --cask skillam` の導線。Cask の正本は
+[`packaging/homebrew/`](../packaging/homebrew/) にあり、リリースごとの手順と
+アンインストール時に何が残るかはそこの README にまとめてある。
+
+ここで押さえておくべきことだけ:
+
+- **配布物は GitHub Releases の `.dmg`。** Cask はそれを URL で指すので、
+  タグを打ってアセットを上げるまで Cask は更新できない
+- **公証が前提。** 未公証の `.dmg` を Cask で配ると、利用者側の Gatekeeper に
+  止められる。手で開くときのような「右クリック →『開く』」の回避策が効かない
+- **sha256 は手計算しない。** `node packaging/homebrew/update-cask.mjs <タグ>`
+  が GitHub の公表する digest から version と両 arch を書き換える
+- **tap は `yut0takagi/homebrew-tap`。** Homebrew がリポジトリ名を
+  `homebrew-` で始めることを要求するため、skillam 本体とは別リポジトリになる
+
 ## パッケージの構造
 
 `main.js` はサーバーと画面を**自分からの相対パス**で読む
@@ -89,6 +106,8 @@ app.asar
 - **Apple Silicon と Intel で別々の `.dmg` を出している。** universal 版は
   ネイティブモジュールを両アーキテクチャ分マージする必要があり、現状は
   分けたほうが確実。
-- **自動更新は未対応。** 新しい版は `.dmg` を配り直す。
+- **アプリ内の自動更新は未対応。** Homebrew で入れたなら
+  `brew upgrade --cask skillam` で上がる。`.dmg` を直接使っている場合は
+  配り直しになる。
 - **Windows / Linux は未検証。** `better-sqlite3` の prebuild は存在するが、
   ビルド設定も動作確認もしていない。

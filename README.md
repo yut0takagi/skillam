@@ -68,7 +68,29 @@ Claude Code の設定を、IAM のロールのように管理するローカル�
 
 ## 使い方
 
-必要なもの: Node.js 20 以上、macOS（キーチェーン連携のため）。
+### インストールする
+
+```bash
+brew tap yut0takagi/tap
+brew trust --cask yut0takagi/tap/skillam
+brew install --cask skillam
+```
+
+`brew trust` が要るのは、Homebrew が公式以外の tap の Cask を、明示的に
+信頼するまで読み込まないため（Homebrew 6.0.20 で確認）。省くと
+`Refusing to load cask ... from untrusted tap` で止まる。
+
+macOS Ventura 以降。Homebrew を使わないなら
+[Releases](https://github.com/yut0takagi/skillam/releases) の `.dmg` を開く
+（Apple Silicon は `-arm64` が付いているほう、Intel は付いていないほう）。
+
+更新は `brew upgrade --cask skillam`。アンインストールは
+`brew uninstall --cask skillam` で、このとき `~/.skillam` のデータは残る。
+データまで消すなら `--zap` を足すが、**適用履歴が消えると、skillam が既に
+書いた設定を「skillam が書いたもの」と判別できなくなる**ので、消す前に
+[packaging/homebrew/README.md](packaging/homebrew/README.md) を読んでほしい。
+
+以下は、リポジトリから動かす場合。必要なもの: Node.js 20 以上、macOS（キーチェーン連携のため）。
 
 ### デスクトップアプリとして起動する
 
