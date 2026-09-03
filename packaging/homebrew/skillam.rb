@@ -36,8 +36,15 @@ cask "skillam" do
   # tell "skillam put this here" from "the user put this here" and will leave
   # the old entries behind for someone to clean up by hand. The caveats say so
   # before anyone reaches for --zap.
+  # The Application Support path is not a typo. The desktop app never calls
+  # `app.setPath("userData", ...)`, so Electron falls back to `app.getName()`,
+  # which returns the packaged package.json `name` — `@skillam/desktop`.
+  # Chromium then treats the slash as a path separator and nests the profile
+  # one level down. Verified against an installed 0.2.0 build; trashing the
+  # `@skillam` scope directory covers it and leaves nothing behind.
   zap trash: [
     "~/.skillam",
+    "~/Library/Application Support/@skillam",
     "~/Library/Caches/dev.yut0takagi.skillam",
     "~/Library/HTTPStorages/dev.yut0takagi.skillam",
     "~/Library/Preferences/dev.yut0takagi.skillam.plist",
