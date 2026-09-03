@@ -80,6 +80,10 @@ brew install --cask skillam
 信頼するまで読み込まないため（Homebrew 6.0.20 で確認）。省くと
 `Refusing to load cask ... from untrusted tap` で止まる。
 
+すでに `.dmg` で `/Applications/skillam.app` を入れている場合は、
+最後の行を `brew install --cask --adopt skillam` にする。入れ直しにならず、
+今あるアプリがそのまま Homebrew 管理下に入る。
+
 macOS Ventura 以降。Homebrew を使わないなら
 [Releases](https://github.com/yut0takagi/skillam/releases) の `.dmg` を開く
 （Apple Silicon は `-arm64` が付いているほう、Intel は付いていないほう）。

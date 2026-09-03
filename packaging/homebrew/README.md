@@ -93,16 +93,42 @@ brew uninstall --cask skillam
 どのスタンザでも消せない。`caveats` で `security delete-generic-password` を
 案内している。
 
+## 手動導入から移行するとき
+
+`.dmg` で入れた `skillam.app` が `/Applications` にあると、素の
+`brew install --cask skillam` は次で中止する（既存アプリは無傷のまま）。
+
+```
+Error: yut0takagi/tap/skillam: It seems there is already an App at '/Applications/skillam.app'.
+```
+
+同じバージョンなら `--adopt` で既存のアプリを Homebrew 管理下に引き取れる。
+入れ直しにならないので、こちらを案内する。
+
+```bash
+brew install --cask --adopt skillam
+```
+
+## userData ディレクトリについて
+
+`zap` に入れている `~/Library/Application Support/@skillam` は誤記ではない。
+
+`apps/desktop/src` は `app.setPath('userData', ...)` を呼んでいないので、
+Electron は `app.getName()`（＝パッケージ後の package.json の `name`）に
+フォールバックする。それが `@skillam/desktop` なので、Chromium はスラッシュを
+パス区切りとして扱い、プロファイルを1段深く作る。
+
+```
+~/Library/Application Support/@skillam/desktop/
+```
+
+npm のスコープ名が、利用者に見える場所へそのまま漏れている状態。動作には
+影響しないが意図した形ではないので、直すなら `productName` に合わせて
+`app.setName('skillam')` を入れることになる。**その変更はウィンドウ位置などの
+保存状態を捨てることになる**（プロファイルの場所が変わる）ので、Cask とは
+別に判断する。ここでは実際に作られるパスに合わせてある。
+
 ## 申し送り
-
-- **Electron の userData ディレクトリを `zap` に入れていない。**
-  `apps/desktop/src` は `app.setPath('userData', ...)` を呼んでおらず、
-  実際のパスはパッケージ後の `app.getName()` に依存する。推測で書くと
-  空振りするので、実インストールで確認してから足す。
-
-  ```bash
-  ls -d ~/Library/Application\ Support/*skillam*
-  ```
 
 - **arch を1つにまとめられる。** #25 の universal ビルドが入れば
   `arch` スタンザと2つの sha256 が不要になる。そのとき
